@@ -1,0 +1,15 @@
+# OpenTofu
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+crash.log
+
+# Ansible secrets (only the .example ships)
+ansible/inventory/group_vars/all/vault.yml
+.vault_pass
+*.retry
+
+# Misc
+.env
