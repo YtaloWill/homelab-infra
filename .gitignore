@@ -13,3 +13,7 @@ ansible/inventory/group_vars/all/vault.yml
 
 # Misc
 .env
+
+# Claude Code reads CLAUDE.md; AGENTS.md is the tracked source of truth.
+# Create a local symlink instead of committing a duplicate (see README).
+CLAUDE.md
