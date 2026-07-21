@@ -1,0 +1,21 @@
+# Copy to terraform.tfvars (git-ignored) and fill in.
+
+# Must be a root@pam token: Proxmox only allows host-path bind mounts (mp0)
+# for root. Create via: Datacenter -> Permissions -> API Tokens
+# (privilege separation OFF), or:
+#   pveum user token add root@pam tofu --privsep 0
+pve_api_token = "root@pam!tofu=00000000-0000-0000-0000-000000000000"
+
+# Node name as listed by: pvesh get /nodes
+# ("central" is the datacenter/cluster name, NOT necessarily the node name)
+node_name = "pve"
+
+# Installed as root's authorized_keys in every container.
+ssh_public_keys = [
+  "ssh-ed25519 AAAA... you@machine",
+]
+
+# Align these with reality before the first apply (pct config 100|101|150):
+# jellyfin_disk_gb = 8
+# arr_disk_gb      = 12
+# samba_disk_gb    = 4
