@@ -1,0 +1,16 @@
+# Managed by Ansible (roles/k3s) — do not edit on the host.
+# Single-node server; ingress lives in the proxy CT, so the bundled traefik
+# stays off; metrics-server is off for RAM.
+disable:
+  - traefik
+  - metrics-server
+
+# Unprivileged-LXC accommodations (spec design decision 8).
+kubelet-arg:
+  - "feature-gates=KubeletInUserNamespace=true"
+kube-proxy-arg:
+  - "conntrack-max-per-core=0"
+{% if k3s_snapshotter is defined %}
+# Fallback when overlayfs misbehaves inside the LXC.
+snapshotter: {{ k3s_snapshotter }}
+{% endif %}

@@ -1,0 +1,59 @@
+---
+- name: Install samba
+  community.general.apk:
+    name: samba
+    state: present
+    update_cache: true
+
+- name: System user backing the share
+  ansible.builtin.user:
+    name: "{{ samba_user }}"
+    shell: /sbin/nologin
+    create_home: false
+
+- name: smb.conf
+  ansible.builtin.template:
+    src: smb.conf.j2
+    dest: /etc/samba/smb.conf
+    mode: "0644"
+  notify: Restart samba
+
+- name: Check passdb for the share user
+  ansible.builtin.command: "pdbedit -L -u {{ samba_user }}"
+  register: passdb
+  failed_when: false
+  changed_when: false
+
+# Only registers a missing user; rotating the password later is manual:
+#   smbpasswd sambauser  (then update vault + /etc/samba/credentials on PVE)
+- name: Register the share user in passdb
+  ansible.builtin.shell: >-
+    printf '%s\n%s\n' '{{ samba_password }}' '{{ samba_password }}'
+    | smbpasswd -a -s '{{ samba_user }}'
+  when: passdb.rc != 0
+  no_log: true
+
+- name: Share tree — media
+  ansible.builtin.file:
+    path: "{{ samba_export_path }}/media/{{ item }}"
+    state: directory
+    owner: "{{ samba_user }}"
+    group: "{{ samba_user }}"
+    mode: "0770"
+  loop: "{{ media_dirs }}"
+
+- name: Share tree — service configs
+  ansible.builtin.file:
+    path: "{{ samba_export_path }}/configs/{{ item }}"
+    state: directory
+    owner: "{{ samba_user }}"
+    group: "{{ samba_user }}"
+    mode: "0770"
+  loop: "{{ ['jellyfin', 'jellyfin/config', 'jellyfin/data', 'arr']
+            + (arr_services | map('regex_replace', '^', 'arr/') | list) }}"
+
+- name: Enable and start samba
+  ansible.builtin.service:
+    name: samba
+    enabled: true
+    state: started

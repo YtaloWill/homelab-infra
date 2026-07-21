@@ -1,0 +1,43 @@
+---
+- name: Check the share is available
+  ansible.builtin.stat:
+    path: "{{ configs_root }}/arr"
+  register: arr_share
+
+- name: Abort when the share is not mounted
+  ansible.builtin.assert:
+    that: arr_share.stat.exists
+    fail_msg: >-
+      {{ configs_root }}/arr missing — run storage.yml first
+      (samba + host CIFS mount), then restart this container.
+
+- name: Stack directory
+  ansible.builtin.file:
+    path: "{{ arr_stack_dir }}"
+    state: directory
+    mode: "0755"
+
+- name: Copy the Helm chart to the container
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../kubernetes/charts/arr-stack/"
+    dest: "{{ arr_stack_dir }}/chart/"
+
+- name: Render values (contains credentials when gluetun is enabled)
+  ansible.builtin.template:
+    src: values-homelab.yaml.j2
+    dest: "{{ arr_stack_dir }}/values.yaml"
+    mode: "0600"
+  no_log: true
+
+# helm upgrade --install is idempotent; k8s reconciles the rest. Change
+# reporting is delegated to helm's own release history.
+- name: Deploy the arr release
+  ansible.builtin.command:
+    cmd: >-
+      helm upgrade --install arr {{ arr_stack_dir }}/chart
+      -f {{ arr_stack_dir }}/values.yaml
+      --namespace arr --create-namespace
+      --wait --timeout 5m
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  changed_when: false

@@ -1,0 +1,73 @@
+---
+- name: Install packages (tar/ca-certificates for the traefik download)
+  community.general.apk:
+    name: dnsmasq,tar,ca-certificates
+    state: present
+    update_cache: true
+
+- name: dnsmasq configuration
+  ansible.builtin.template:
+    src: dnsmasq.conf.j2
+    dest: /etc/dnsmasq.conf
+    mode: "0644"
+  notify: Restart dnsmasq
+
+- name: Enable and start dnsmasq
+  ansible.builtin.service:
+    name: dnsmasq
+    enabled: true
+    state: started
+
+- name: Install traefik {{ traefik_version }}
+  ansible.builtin.unarchive:
+    src: "https://github.com/traefik/traefik/releases/download/{{ traefik_version }}/traefik_{{ traefik_version }}_linux_amd64.tar.gz"
+    remote_src: true
+    dest: /usr/local/bin
+    include: [traefik]
+    mode: "0755"
+    creates: "/usr/local/bin/.traefik-{{ traefik_version }}"
+  notify: Restart traefik
+
+- name: Traefik version marker
+  ansible.builtin.file:
+    path: "/usr/local/bin/.traefik-{{ traefik_version }}"
+    state: touch
+    mode: "0644"
+    modification_time: preserve
+    access_time: preserve
+
+- name: Traefik config directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  loop:
+    - /etc/traefik
+    - /etc/traefik/dynamic
+
+- name: Traefik static configuration
+  ansible.builtin.template:
+    src: traefik.yml.j2
+    dest: /etc/traefik/traefik.yml
+    mode: "0644"
+  notify: Restart traefik
+
+- name: Traefik routers/services ({{ proxy_services | length }} hosts)
+  ansible.builtin.template:
+    src: dynamic.yml.j2
+    dest: /etc/traefik/dynamic/homelab.yml
+    mode: "0644"
+  # file provider watches the directory; no restart needed
+
+- name: Traefik OpenRC service
+  ansible.builtin.copy:
+    src: traefik.initd
+    dest: /etc/init.d/traefik
+    mode: "0755"
+  notify: Restart traefik
+
+- name: Enable and start traefik
+  ansible.builtin.service:
+    name: traefik
+    enabled: true
+    state: started

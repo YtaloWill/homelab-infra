@@ -1,0 +1,3 @@
+#!/bin/sh
+# kubelet requires /dev/kmsg; unprivileged LXC does not provide it.
+[ -e /dev/kmsg ] || ln -s /dev/console /dev/kmsg

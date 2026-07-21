@@ -1,0 +1,16 @@
+# Rendered by Ansible (roles/arr_stack) — do not edit; see
+# kubernetes/charts/arr-stack/values.yaml for app wiring.
+timezone: {{ tz }}
+puid: "{{ puid }}"
+pgid: "{{ pgid }}"
+configsRoot: {{ configs_root }}/arr
+mediaRoot: {{ media_root }}
+
+gluetun:
+  enabled: {{ gluetun_enabled | bool | lower }}
+{% if gluetun_enabled %}
+  env:
+{% for key, value in (vault_gluetun_environment | default({})).items() %}
+    {{ key }}: {{ value | string | to_json }}
+{% endfor %}
+{% endif %}

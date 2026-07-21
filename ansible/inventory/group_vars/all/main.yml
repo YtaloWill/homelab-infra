@@ -1,0 +1,78 @@
+---
+tz: America/Sao_Paulo
+
+# gid 10000 in-container == gid 110000 on the PVE host (unprivileged offset);
+# the host CIFS mount maps everything to that gid — see design decision 1.
+puid: 1000
+pgid: 10000
+
+# --- samba / storage ------------------------------------------------------
+samba_host: 192.168.15.150
+samba_share: nas
+samba_user: sambauser
+samba_password: "{{ vault_samba_password }}"
+samba_export_path: /srv/nas
+
+host_cifs_mount: /mnt/samba
+# nobrl: SQLite DBs live on the share (design decision 2).
+cifs_mount_opts: "credentials=/etc/samba/credentials,vers=3.0,uid=100000,gid=110000,file_mode=0660,dir_mode=0770,nofail,_netdev,nobrl"
+
+configs_root: /mnt/samba/configs
+media_root: /mnt/samba/media
+
+media_dirs:
+  - downloads
+  - movies
+  - shows
+  - test_movies
+  - test_shows
+
+arr_services:
+  - prowlarr
+  - qbittorrent
+  - radarr
+  - sonarr
+  - bazarr
+  - jellyseerr
+
+# --- arr stack (k3s + helm) -------------------------------------------------
+# Chart copy + rendered values live under /srv (existing convention on
+# PCT 101); the legacy compose file sits at /srv/docker-compose.yml and is
+# left untouched. App wiring: kubernetes/charts/arr-stack/values.yaml.
+arr_stack_dir: /srv/arr
+
+# Independent VPN egress (helm value gluetun.enabled). Enabling requires valid
+# credentials in vault (vault_gluetun_environment); no other workload is
+# affected either way — apps opt in via their own proxy settings, pointed at
+# http://192.168.15.103:8888 (design decision 5).
+gluetun_enabled: false
+
+# --- proxy / DNS ----------------------------------------------------------
+proxy_ip: 192.168.15.104
+local_domain: local # switch to lan/home.arpa if mDNS collisions bite
+upstream_dns:
+  - 192.168.15.1
+  - 1.1.1.1
+
+traefik_version: "v3.4.1"
+
+proxy_services:
+  - name: jellyfin
+    url: http://192.168.15.102:8096
+  - name: prowlarr
+    url: http://192.168.15.103:9696
+  - name: qbittorrent
+    url: http://192.168.15.103:8080
+  - name: radarr
+    url: http://192.168.15.103:7878
+  - name: sonarr
+    url: http://192.168.15.103:8989
+  - name: bazarr
+    url: http://192.168.15.103:6767
+  - name: jellyseerr
+    url: http://192.168.15.103:5055
+  - name: flaresolverr
+    url: http://192.168.15.103:8191
+  - name: proxmox
+    url: https://192.168.15.101:8006
+    insecure_backend: true

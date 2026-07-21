@@ -1,0 +1,15 @@
+#!/sbin/openrc-run
+# Managed by Ansible (roles/proxy) — do not edit on the host.
+
+name="traefik"
+command="/usr/local/bin/traefik"
+command_args="--configfile=/etc/traefik/traefik.yml"
+command_background="yes"
+pidfile="/run/${RC_SVCNAME}.pid"
+output_log="/var/log/traefik.log"
+error_log="/var/log/traefik.err"
+
+depend() {
+    need net
+    after firewall
+}

@@ -1,0 +1,47 @@
+---
+- name: Install k3s + helm (Alpine community repo)
+  community.general.apk:
+    name: k3s,helm
+    state: present
+    update_cache: true
+
+# kubelet insists on /dev/kmsg, which an unprivileged LXC does not provide.
+- name: /dev/kmsg shim
+  ansible.builtin.copy:
+    src: kmsg.start
+    dest: /etc/local.d/kmsg.start
+    mode: "0755"
+
+- name: Enable local.d scripts at boot
+  ansible.builtin.service:
+    name: local
+    enabled: true
+
+- name: Apply the kmsg shim now
+  ansible.builtin.command: /etc/local.d/kmsg.start
+  args:
+    creates: /dev/kmsg
+
+- name: k3s config directory
+  ansible.builtin.file:
+    path: /etc/rancher/k3s
+    state: directory
+    mode: "0755"
+
+- name: k3s configuration
+  ansible.builtin.template:
+    src: config.yaml.j2
+    dest: /etc/rancher/k3s/config.yaml
+    mode: "0644"
+  notify: Restart k3s
+
+- name: Enable and start k3s
+  ansible.builtin.service:
+    name: k3s
+    enabled: true
+    state: started
+
+- name: Wait for the API server
+  ansible.builtin.wait_for:
+    port: 6443
+    timeout: 180

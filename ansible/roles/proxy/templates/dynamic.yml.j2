@@ -1,0 +1,31 @@
+# Managed by Ansible (roles/proxy) — do not edit on the host.
+# TLS is traefik's default self-signed certificate (spec design decision 7).
+http:
+  routers:
+{% for svc in proxy_services %}
+    {{ svc.name }}:
+      rule: "Host(`{{ svc.name }}.{{ local_domain }}`)"
+      entryPoints: [websecure]
+      service: {{ svc.name }}
+      tls: {}
+{% endfor %}
+    dashboard:
+      rule: "Host(`traefik.{{ local_domain }}`)"
+      entryPoints: [websecure]
+      service: api@internal
+      tls: {}
+
+  services:
+{% for svc in proxy_services %}
+    {{ svc.name }}:
+      loadBalancer:
+{% if svc.insecure_backend | default(false) %}
+        serversTransport: insecure-backend
+{% endif %}
+        servers:
+          - url: "{{ svc.url }}"
+{% endfor %}
+
+  serversTransports:
+    insecure-backend:
+      insecureSkipVerify: true

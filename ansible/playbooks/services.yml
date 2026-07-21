@@ -1,0 +1,16 @@
+---
+- name: Jellyfin media server
+  hosts: jellyfin
+  roles:
+    - jellyfin
+
+- name: arr media automation stack (k3s + helm)
+  hosts: arr
+  roles:
+    - k3s
+    - arr_stack
+
+- name: Local DNS + reverse proxy
+  hosts: traefik
+  roles:
+    - proxy

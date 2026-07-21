@@ -1,0 +1,76 @@
+---
+- name: Check the share is available
+  ansible.builtin.stat:
+    path: "{{ configs_root }}/jellyfin"
+  register: jf_share
+
+- name: Abort when the share is not mounted
+  ansible.builtin.assert:
+    that: jf_share.stat.exists
+    fail_msg: >-
+      {{ configs_root }}/jellyfin missing — run storage.yml first
+      (samba + host CIFS mount), then restart this container.
+
+- name: Keyring directory
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    mode: "0755"
+
+- name: Jellyfin repository key
+  ansible.builtin.get_url:
+    url: https://repo.jellyfin.org/jellyfin_team.gpg.key
+    dest: /etc/apt/keyrings/jellyfin.asc
+    mode: "0644"
+
+- name: Jellyfin apt repository
+  ansible.builtin.apt_repository:
+    repo: >-
+      deb [signed-by=/etc/apt/keyrings/jellyfin.asc]
+      https://repo.jellyfin.org/debian bookworm main
+    filename: jellyfin
+    state: present
+
+- name: Install jellyfin
+  ansible.builtin.apt:
+    name: jellyfin
+    state: present
+    update_cache: true
+
+# gid {{ pgid }} in-container maps to the host CIFS gid — group membership is
+# what grants rw on /mnt/samba (design decision 1).
+- name: Media group matching the CIFS gid mapping
+  ansible.builtin.group:
+    name: mediashare
+    gid: "{{ pgid }}"
+
+- name: Add jellyfin to the media group
+  ansible.builtin.user:
+    name: jellyfin
+    groups: mediashare
+    append: true
+  notify: Restart jellyfin
+
+- name: Systemd override directory
+  ansible.builtin.file:
+    path: /etc/systemd/system/jellyfin.service.d
+    state: directory
+    mode: "0755"
+
+- name: Point config/data at the share (cache/logs stay local)
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/jellyfin.service.d/override.conf
+    content: |
+      [Service]
+      Environment="JELLYFIN_CONFIG_DIR={{ configs_root }}/jellyfin/config"
+      Environment="JELLYFIN_DATA_DIR={{ configs_root }}/jellyfin/data"
+      Environment="JELLYFIN_CACHE_DIR=/var/cache/jellyfin"
+      Environment="JELLYFIN_LOG_DIR=/var/log/jellyfin"
+    mode: "0644"
+  notify: Restart jellyfin
+
+- name: Enable and start jellyfin
+  ansible.builtin.systemd:
+    name: jellyfin
+    enabled: true
+    state: started

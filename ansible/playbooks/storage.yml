@@ -1,0 +1,52 @@
+---
+- name: Configure the samba NAS
+  hosts: nas
+  roles:
+    - samba_server
+
+# Unprivileged LXC cannot mount CIFS; the PVE host mounts the share and
+# OpenTofu bind-mounts it into the consumer containers (design decision 1).
+- name: Mount //samba/nas on the PVE host
+  hosts: proxmox
+  tasks:
+    - name: Install cifs-utils
+      ansible.builtin.apt:
+        name: cifs-utils
+        state: present
+
+    - name: Credentials directory
+      ansible.builtin.file:
+        path: /etc/samba
+        state: directory
+        mode: "0755"
+
+    - name: Samba credentials file
+      ansible.builtin.copy:
+        dest: /etc/samba/credentials
+        content: |
+          username={{ samba_user }}
+          password={{ samba_password }}
+        owner: root
+        group: root
+        mode: "0600"
+      no_log: true
+
+    - name: Mount the share (fstab + live mount)
+      ansible.posix.mount:
+        path: "{{ host_cifs_mount }}"
+        src: "//{{ samba_host }}/{{ samba_share }}"
+        fstype: cifs
+        opts: "{{ cifs_mount_opts }}"
+        state: mounted
+      register: cifs_mount
+
+    # Containers that bind-mounted the (previously empty) mountpoint see the
+    # share content only after a restart.
+    - name: Restart consumer containers on first mount
+      ansible.builtin.command: "pct reboot {{ item }}"
+      loop: [100, 101]
+      when: cifs_mount is changed
+      register: ct_reboot
+      failed_when:
+        - ct_reboot.rc != 0
+        - "'not running' not in ct_reboot.stderr"

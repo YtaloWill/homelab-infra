@@ -1,0 +1,6 @@
+---
+- name: Storage first — services store their configs on the share
+  ansible.builtin.import_playbook: storage.yml
+
+- name: Services
+  ansible.builtin.import_playbook: services.yml

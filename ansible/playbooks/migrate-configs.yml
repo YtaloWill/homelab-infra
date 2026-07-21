@@ -1,0 +1,99 @@
+---
+# One-time migration of legacy configs onto the samba share.
+# Copies only — sources are never deleted (requirement 7). A service is
+# skipped when its destination already contains files.
+- name: Migrate legacy arr configs to the samba share
+  hosts: arr
+  vars:
+    # Directory holding the legacy docker-compose.yml and its relative
+    # ./<service>/config dirs. Adjust with -e if it lives elsewhere.
+    legacy_arr_dir: /srv
+  tasks:
+    - name: Check for a legacy compose directory
+      ansible.builtin.stat:
+        path: "{{ legacy_arr_dir }}/docker-compose.yml"
+      register: legacy_compose
+
+    - name: Nothing to migrate on this host
+      ansible.builtin.meta: end_host
+      when: not legacy_compose.stat.exists
+
+    - name: Ensure rsync is present
+      community.general.apk:
+        name: rsync
+        state: present
+
+    - name: Stop the legacy stack while copying
+      ansible.builtin.command:
+        cmd: docker compose down
+        chdir: "{{ legacy_arr_dir }}"
+      failed_when: false
+      changed_when: false
+
+    - name: Copy each service config when the destination is empty
+      ansible.builtin.shell: |
+        set -e
+        src="{{ legacy_arr_dir }}/{{ item }}/config/"
+        dst="{{ configs_root }}/arr/{{ item }}/"
+        if [ -d "$src" ] && [ -z "$(ls -A "$dst" 2>/dev/null)" ]; then
+          mkdir -p "$dst"
+          rsync -a "$src" "$dst"
+          echo MIGRATED
+        fi
+      loop: "{{ arr_services }}"
+      register: arr_migration
+      changed_when: "'MIGRATED' in arr_migration.stdout"
+
+    - name: Migration summary
+      ansible.builtin.debug:
+        msg: >-
+          Legacy compose stack at {{ legacy_arr_dir }} is stopped and
+          untouched; site.yml deploys the k3s/helm stack from
+          {{ arr_stack_dir }}. Once verified, manually remove docker
+          (apk del docker docker-cli-compose) and the legacy files
+          (spec task 4.12).
+
+- name: Migrate jellyfin config/data to the samba share
+  hosts: jellyfin
+  tasks:
+    - name: Check for existing jellyfin data
+      ansible.builtin.stat:
+        path: /var/lib/jellyfin
+      register: jf_data
+
+    - name: Nothing to migrate on this host
+      ansible.builtin.meta: end_host
+      when: not jf_data.stat.exists
+
+    - name: Ensure rsync is present
+      ansible.builtin.apt:
+        name: rsync
+        state: present
+
+    - name: Stop jellyfin while copying
+      ansible.builtin.systemd:
+        name: jellyfin
+        state: stopped
+      failed_when: false
+
+    - name: Copy config and data when the destination is empty
+      ansible.builtin.shell: |
+        set -e
+        src="{{ item.src }}"
+        dst="{{ item.dst }}"
+        if [ -d "$src" ] && [ -z "$(ls -A "$dst" 2>/dev/null)" ]; then
+          mkdir -p "$dst"
+          rsync -a "$src" "$dst"
+          echo MIGRATED
+        fi
+      loop:
+        - { src: "/etc/jellyfin/", dst: "{{ configs_root }}/jellyfin/config/" }
+        - { src: "/var/lib/jellyfin/", dst: "{{ configs_root }}/jellyfin/data/" }
+      register: jf_migration
+      changed_when: "'MIGRATED' in jf_migration.stdout"
+
+    - name: Start jellyfin again
+      ansible.builtin.systemd:
+        name: jellyfin
+        state: started
+      failed_when: false

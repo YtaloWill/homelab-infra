@@ -1,0 +1,20 @@
+---
+# Copy to vault.yml, set real values, then encrypt:
+#   ansible-vault encrypt inventory/group_vars/all/vault.yml
+# vault.yml is git-ignored; never commit it unencrypted.
+
+# Set to the CURRENT live samba password first so migration works against the
+# existing server, then rotate (the old one is written in PLAN.md => burned).
+vault_samba_password: CHANGE_ME
+
+# Only needed when gluetun_enabled: true. Keys/values go 1:1 into
+# /opt/arr/gluetun.env — see https://github.com/qdm12/gluetun-wiki
+# for your provider's variables. Example (wireguard, custom provider):
+vault_gluetun_environment: {}
+#  VPN_SERVICE_PROVIDER: custom
+#  VPN_TYPE: wireguard
+#  WIREGUARD_PRIVATE_KEY: xxxxxxxx
+#  WIREGUARD_ADDRESSES: 10.2.0.2/32
+#  WIREGUARD_PUBLIC_KEY: yyyyyyyy
+#  VPN_ENDPOINT_IP: 1.2.3.4
+#  VPN_ENDPOINT_PORT: "51820"

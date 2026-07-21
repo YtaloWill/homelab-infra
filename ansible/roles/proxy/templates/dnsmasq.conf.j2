@@ -1,0 +1,13 @@
+# Managed by Ansible (roles/proxy) — do not edit on the host.
+domain-needed
+bogus-priv
+no-resolv
+cache-size=1000
+
+# Upstream forwarders for everything that is not *.{{ local_domain }}
+{% for server in upstream_dns %}
+server={{ server }}
+{% endfor %}
+
+# Every *.{{ local_domain }} name lands on traefik (this container).
+address=/{{ local_domain }}/{{ proxy_ip }}

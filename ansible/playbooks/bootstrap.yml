@@ -1,0 +1,60 @@
+---
+# First-contact bootstrap: Alpine LXC templates ship without sshd/python, so
+# Ansible cannot reach the containers directly yet. This playbook runs on the
+# PVE host and prepares each container via `pct exec`.
+- name: Bootstrap python + sshd + operator key inside the LXC containers
+  hosts: proxmox
+  gather_facts: false
+  vars:
+    ssh_public_key_file: "{{ lookup('env', 'HOME') }}/.ssh/id_ed25519.pub"
+    ssh_public_key: "{{ lookup('file', ssh_public_key_file) }}"
+    bootstrap_containers:
+      - { id: 100, os: debian }
+      - { id: 101, os: alpine }
+      - { id: 104, os: alpine }
+      - { id: 150, os: alpine }
+  tasks:
+    - name: Install python3 + sshd (alpine)
+      ansible.builtin.command: >-
+        pct exec {{ item.id }} -- apk add --no-cache python3 openssh
+      loop: "{{ bootstrap_containers | selectattr('os', 'eq', 'alpine') | list }}"
+      register: apk_result
+      changed_when: "'Installing' in apk_result.stdout"
+
+    - name: Install python3 + sshd (debian)
+      ansible.builtin.command: >-
+        pct exec {{ item.id }} -- sh -c
+        "apt-get update -q && DEBIAN_FRONTEND=noninteractive apt-get install -qy python3 openssh-server"
+      loop: "{{ bootstrap_containers | selectattr('os', 'eq', 'debian') | list }}"
+      register: apt_result
+      changed_when: "'0 newly installed' not in apt_result.stdout"
+
+    - name: Enable sshd at boot (alpine)
+      ansible.builtin.command: >-
+        pct exec {{ item.id }} -- rc-update add sshd default
+      loop: "{{ bootstrap_containers | selectattr('os', 'eq', 'alpine') | list }}"
+      register: rcupdate_result
+      changed_when: "'added to runlevel' in rcupdate_result.stdout"
+
+    - name: Start sshd if not running (alpine)
+      ansible.builtin.command: >-
+        pct exec {{ item.id }} -- sh -c
+        "rc-service sshd status >/dev/null 2>&1 || rc-service sshd start"
+      loop: "{{ bootstrap_containers | selectattr('os', 'eq', 'alpine') | list }}"
+      changed_when: false
+
+    - name: Enable + start sshd (debian)
+      ansible.builtin.command: >-
+        pct exec {{ item.id }} -- systemctl enable --now ssh
+      loop: "{{ bootstrap_containers | selectattr('os', 'eq', 'debian') | list }}"
+      changed_when: false
+
+    - name: Install the operator public key for root
+      ansible.builtin.command: >-
+        pct exec {{ item.id }} -- sh -c
+        "mkdir -p /root/.ssh && chmod 700 /root/.ssh &&
+        if ! grep -qxF '{{ ssh_public_key }}' /root/.ssh/authorized_keys 2>/dev/null; then
+        echo '{{ ssh_public_key }}' >> /root/.ssh/authorized_keys && chmod 600 /root/.ssh/authorized_keys && echo ADDED; fi"
+      loop: "{{ bootstrap_containers }}"
+      register: key_result
+      changed_when: "'ADDED' in key_result.stdout"
