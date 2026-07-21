@@ -1,0 +1,80 @@
+{{- if .Values.gluetun.enabled }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: gluetun-env
+  labels:
+    app.kubernetes.io/name: gluetun
+    {{- include "arr-stack.labels" . | nindent 4 }}
+type: Opaque
+stringData:
+  {{- range $key, $value := .Values.gluetun.env }}
+  {{ $key }}: {{ $value | quote }}
+  {{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gluetun
+  labels:
+    app.kubernetes.io/name: gluetun
+    {{- include "arr-stack.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: gluetun
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: gluetun
+        {{- include "arr-stack.labels" . | nindent 8 }}
+    spec:
+      containers:
+        - name: gluetun
+          image: {{ .Values.gluetun.image }}
+          securityContext:
+            capabilities:
+              add: ["NET_ADMIN"]
+          env:
+            - name: TZ
+              value: {{ .Values.timezone | quote }}
+            - name: HTTPPROXY
+              value: "on"
+            - name: HTTPPROXY_LISTENING_ADDRESS
+              value: ":{{ .Values.gluetun.httpProxyPort }}"
+          envFrom:
+            - secretRef:
+                name: gluetun-env
+          ports:
+            - name: http-proxy
+              containerPort: {{ .Values.gluetun.httpProxyPort }}
+              protocol: TCP
+          volumeMounts:
+            - name: dev-net-tun
+              mountPath: /dev/net/tun
+      volumes:
+        - name: dev-net-tun
+          hostPath:
+            path: /dev/net/tun
+            type: CharDevice
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gluetun-proxy
+  labels:
+    app.kubernetes.io/name: gluetun
+    {{- include "arr-stack.labels" . | nindent 4 }}
+spec:
+  type: LoadBalancer
+  selector:
+    app.kubernetes.io/name: gluetun
+  ports:
+    - name: http-proxy
+      port: {{ .Values.gluetun.httpProxyPort }}
+      targetPort: {{ .Values.gluetun.httpProxyPort }}
+      protocol: TCP
+{{- end }}

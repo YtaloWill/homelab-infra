@@ -1,0 +1,96 @@
+# Wiring for every app lives here; templates are generic.
+# Ansible overrides timezone/ids/paths/gluetun via a rendered values file.
+
+timezone: America/Sao_Paulo
+puid: "1000"
+pgid: "10000"
+
+# hostPath roots inside PCT 101 (the /mnt/samba bind mount).
+configsRoot: /mnt/samba/configs/arr
+mediaRoot: /mnt/samba/media
+
+apps:
+  prowlarr:
+    image: lscr.io/linuxserver/prowlarr:latest
+    lsio: true
+    configMount: /config
+    ports:
+      - name: http
+        port: 9696
+    media: []
+
+  qbittorrent:
+    image: lscr.io/linuxserver/qbittorrent:latest
+    lsio: true
+    configMount: /config
+    env:
+      WEBUI_PORT: "8080"
+      TORRENTING_PORT: "6881"
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+    ports:
+      - name: webui
+        port: 8080
+      - name: torrent-tcp
+        port: 6881
+      - name: torrent-udp
+        port: 6881
+        protocol: UDP
+    media: [downloads, movies, shows]
+
+  flaresolverr:
+    image: ghcr.io/flaresolverr/flaresolverr:latest
+    lsio: false
+    configMount: ""
+    ports:
+      - name: http
+        port: 8191
+    media: []
+
+  radarr:
+    image: lscr.io/linuxserver/radarr:latest
+    lsio: true
+    configMount: /config
+    ports:
+      - name: http
+        port: 7878
+    media: [movies, test_movies, downloads]
+
+  sonarr:
+    image: lscr.io/linuxserver/sonarr:latest
+    lsio: true
+    configMount: /config
+    ports:
+      - name: http
+        port: 8989
+    media: [shows, test_shows, downloads]
+
+  bazarr:
+    image: lscr.io/linuxserver/bazarr:latest
+    lsio: true
+    configMount: /config
+    ports:
+      - name: http
+        port: 6767
+    media: [movies, test_movies, shows, test_shows]
+
+  jellyseerr:
+    image: fallenbagel/jellyseerr:latest
+    lsio: false
+    configMount: /app/config
+    ports:
+      - name: http
+        port: 5055
+    media: []
+
+# Independent VPN egress. Nothing here is referenced by any app above:
+# enabling/disabling renders/removes only gluetun's own objects.
+# Apps opt in via their own proxy settings -> http://<node-ip>:8888.
+gluetun:
+  enabled: false
+  image: qmcgaw/gluetun:v3
+  httpProxyPort: 8888
+  # Provider credentials (VPN_SERVICE_PROVIDER, WIREGUARD_*, ...);
+  # supplied by Ansible from Vault, becomes a Secret. Never commit values.
+  env: {}

@@ -1,0 +1,124 @@
+{{- range $name, $app := .Values.apps }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels:
+    app.kubernetes.io/name: {{ $name }}
+    {{- include "arr-stack.labels" $ | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ $name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ $name }}
+        {{- include "arr-stack.labels" $ | nindent 8 }}
+    spec:
+      {{- with $app.dns }}
+      dnsPolicy: "None"
+      dnsConfig:
+        nameservers:
+          {{- toYaml . | nindent 10 }}
+      {{- end }}
+      containers:
+        - name: {{ $name }}
+          image: {{ $app.image }}
+          env:
+            - name: TZ
+              value: {{ $.Values.timezone | quote }}
+            {{- if $app.lsio }}
+            - name: PUID
+              value: {{ $.Values.puid | quote }}
+            - name: PGID
+              value: {{ $.Values.pgid | quote }}
+            {{- end }}
+            {{- range $key, $value := $app.env }}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{- end }}
+          ports:
+            {{- range $app.ports }}
+            - name: {{ .name }}
+              containerPort: {{ .port }}
+              protocol: {{ .protocol | default "TCP" }}
+            {{- end }}
+          volumeMounts:
+            {{- if $app.configMount }}
+            - name: config
+              mountPath: {{ $app.configMount }}
+            {{- end }}
+            {{- range $app.media }}
+            - name: media-{{ . | replace "_" "-" }}
+              mountPath: /{{ . }}
+            {{- end }}
+      volumes:
+        {{- if $app.configMount }}
+        - name: config
+          hostPath:
+            path: {{ $.Values.configsRoot }}/{{ $name }}
+            type: DirectoryOrCreate
+        {{- end }}
+        {{- range $app.media }}
+        - name: media-{{ . | replace "_" "-" }}
+          hostPath:
+            path: {{ $.Values.mediaRoot }}/{{ . }}
+            type: Directory
+        {{- end }}
+{{- $tcpPorts := list }}
+{{- $udpPorts := list }}
+{{- range $app.ports }}
+{{- if eq (.protocol | default "TCP") "UDP" }}
+{{- $udpPorts = append $udpPorts . }}
+{{- else }}
+{{- $tcpPorts = append $tcpPorts . }}
+{{- end }}
+{{- end }}
+{{- if $tcpPorts }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    app.kubernetes.io/name: {{ $name }}
+    {{- include "arr-stack.labels" $ | nindent 4 }}
+spec:
+  type: LoadBalancer
+  selector:
+    app.kubernetes.io/name: {{ $name }}
+  ports:
+    {{- range $tcpPorts }}
+    - name: {{ .name }}
+      port: {{ .port }}
+      targetPort: {{ .port }}
+      protocol: TCP
+    {{- end }}
+{{- end }}
+{{- if $udpPorts }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}-udp
+  labels:
+    app.kubernetes.io/name: {{ $name }}
+    {{- include "arr-stack.labels" $ | nindent 4 }}
+spec:
+  type: LoadBalancer
+  selector:
+    app.kubernetes.io/name: {{ $name }}
+  ports:
+    {{- range $udpPorts }}
+    - name: {{ .name }}
+      port: {{ .port }}
+      targetPort: {{ .port }}
+      protocol: UDP
+    {{- end }}
+{{- end }}
+{{- end }}
