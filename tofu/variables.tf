@@ -4,8 +4,14 @@ variable "pve_endpoint" {
   default     = "https://192.168.15.101:8006"
 }
 
-variable "pve_api_token" {
-  description = "API token (root@pam! — bind mounts require root)"
+variable "pve_username" {
+  description = "PVE login for ticket auth, e.g. root@pam (bind mounts require a root@pam ticket, not an API token)"
+  type        = string
+  default     = "root@pam"
+}
+
+variable "pve_password" {
+  description = "PVE password for pve_username (ticket auth)"
   type        = string
   sensitive   = true
 }

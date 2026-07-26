@@ -3,8 +3,9 @@
 ## Stack
 
 - **OpenTofu** ≥ 1.6 with `bpg/proxmox` (~> 0.66) — container lifecycle via the
-  Proxmox API (`https://192.168.15.101:8006`, root@pam token required for
-  bind mounts).
+  Proxmox API (`https://192.168.15.101:8006`, root@pam ticket auth
+  (username/password) required for bind mounts — a token's authuser never
+  matches PVE's literal `root@pam` check).
 - **Ansible** (core ≥ 2.15) with `community.general` + `ansible.posix` —
   in-container configuration and the PVE-host CIFS mount. Vault for secrets.
 - **LXC guests**: Alpine, all four (jellyfin, arr, samba, proxy). Official

@@ -168,9 +168,13 @@ footprint the old containers happened to grow into.
    app pods was tight against the original 4 GB default — `arr_memory`
    defaults to 6144 now.
 
-9. **Bind mounts require root API access.** Proxmox only allows `mp` host-path
-   entries for root@pam. The tofu provider must authenticate with a root@pam
-   API token (documented in tfvars example).
+9. **Bind mounts require a root@pam ticket, not an API token.** Proxmox only
+   allows `mp` host-path entries for root@pam. Its permission check compares
+   authuser literally against `root@pam`; an API token's authuser is
+   `root@pam!<tokenid>`, which never matches — token auth 403s on every
+   container with a bind mount (arr, jellyfin, samba). The tofu provider
+   authenticates with `username`/`password` (ticket auth) instead
+   (documented in tfvars example).
 
 10. **Jellyfin runs on Alpine via k3s + Helm, not Debian via apt.**
     Originally PCT 100 was declared as a Debian 12 container so jellyfin

@@ -61,8 +61,9 @@ imported (design decision 4) — the fleet no longer needs to match whatever
 footprint the old containers drifted into. The one non-negotiable: real data
 must be migrated off each container **before** it's deleted, not after.
 
-- [ ] 4.1 Create root@pam API token; put it in `tofu/terraform.tfvars`; set
-      `node_name` from `pvesh get /nodes` (_Requirements: 1.1_)
+- [ ] 4.1 Set root's PVE password and put it in `tofu/terraform.tfvars` as
+      `pve_password` (ticket auth, not an API token — see design decision 9);
+      set `node_name` from `pvesh get /nodes` (_Requirements: 1.1_)
 - [ ] 4.2 Create `ansible/inventory/group_vars/all/vault.yml` from the
       example; encrypt with `ansible-vault`; rotate the samba password
       (_Requirements: 8.1, 8.2_)
