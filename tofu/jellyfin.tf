@@ -1,7 +1,7 @@
 resource "proxmox_virtual_environment_container" "jellyfin" {
   node_name     = var.node_name
   vm_id         = local.vmid_jellyfin
-  description   = "Jellyfin media server. Managed by OpenTofu."
+  description   = "Jellyfin media server (k3s + Helm). Managed by OpenTofu."
   tags          = ["homelab", "media"]
   unprivileged  = true
   start_on_boot = true
@@ -33,8 +33,28 @@ resource "proxmox_virtual_environment_container" "jellyfin" {
   }
 
   operating_system {
-    template_file_id = proxmox_virtual_environment_download_file.debian12.id
-    type             = "debian"
+    template_file_id = proxmox_virtual_environment_download_file.alpine.id
+    type             = "alpine"
+  }
+
+  # k3s/containerd inside an unprivileged CT (same as arr — keyctl isn't
+  # needed for k3s/containerd, only Docker).
+  features {
+    nesting = true
+  }
+
+  # iGPU render nodes for QSV hardware transcoding, hostPath-mounted into the
+  # jellyfin pod. World-rw mode sidesteps needing to know the pod's
+  # render/video gid in advance — the gid=993/44 seen on the old Debian box
+  # isn't guaranteed to match a freshly created Alpine CT.
+  device_passthrough {
+    path = "/dev/dri/renderD128"
+    mode = "0666"
+  }
+
+  device_passthrough {
+    path = "/dev/dri/card1"
+    mode = "0666"
   }
 
   initialization {
@@ -62,6 +82,5 @@ resource "proxmox_virtual_environment_container" "jellyfin" {
 
   lifecycle {
     prevent_destroy = true
-    ignore_changes  = [operating_system]
   }
 }

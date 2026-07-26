@@ -6,9 +6,14 @@ Codify the existing single-node Proxmox homelab (Dell Latitude 7310, node API at
 `https://192.168.15.101:8006`, datacenter/cluster name `central`) as reproducible
 infrastructure-as-code using OpenTofu (provisioning) and Ansible (configuration).
 The current fleet — jellyfin (PCT 100), arr media stack (PCT 101), samba NAS
-(PCT 150) — must be brought under management **without recreation or data loss**,
-and a new minimal reverse-proxy/DNS container must be added so services are
-reachable as `https://<service>.local`.
+(PCT 150) — is being rebuilt from scratch (deleted and recreated) so it
+matches this spec exactly, and a new minimal reverse-proxy/DNS container must
+be added so services are reachable as `https://<service>.local`. The one
+hard constraint on the rebuild: real data SHALL NOT be wiped — the hdd-500
+NAS payload (currently PCT 150's own rootfs disk) and jellyfin/arr's
+still-local configs (not yet on the samba share) must be migrated off each
+container before it's deleted, so the fresh container reattaches to
+already-populated data instead of starting empty.
 
 Original intent capture: [PLAN.md](../../../PLAN.md). This spec is the source of
 truth where the two diverge.
@@ -26,9 +31,10 @@ audited from code.
      exist on the node with the declared CPU, memory, swap, and rootfs settings.
 1.2. WHEN any container is created or managed THEN it SHALL be **unprivileged**
      (`unprivileged = true`); no privileged containers are permitted.
-1.3. WHEN bringing the pre-existing containers (100, 101, 150) under management
-     THEN they SHALL be imported into state, never destroyed/recreated;
-     `prevent_destroy` SHALL guard them so a destructive plan fails.
+1.3. WHEN containers 100, 101, and 150 are rebuilt THEN they SHALL be deleted
+     and recreated via `tofu apply` (no import) so their config exactly
+     matches this spec; once created, `prevent_destroy` SHALL guard them so a
+     later destructive plan fails.
 1.4. WHEN a container rootfs is provisioned THEN it SHALL live on `local-lvm`
      (LVM-thin) with the minimum practical size for the OS + runtime only.
 1.5. IF the required Alpine/Debian LXC templates are absent THEN `tofu apply`
@@ -118,18 +124,25 @@ can enable or disable with a single value without touching anything else.
 
 ## Requirement 5 — Jellyfin without community scripts
 
-**User Story:** As the operator, I want jellyfin installed from the official
-Jellyfin apt repository via Ansible, so PCT 100 can be rebuilt without the
-community script it was originally created with.
+**User Story:** As the operator, I want jellyfin running from the official
+`jellyfin/jellyfin` container image on k3s, deployed by a repo-local Helm
+chart via Ansible — the same pattern as the arr stack — so PCT 100 can be
+rebuilt without the community script it was originally created with.
 
 ### Acceptance Criteria
 
-5.1. WHEN the jellyfin role runs THEN jellyfin SHALL be installed from
-     `repo.jellyfin.org` on the Debian container — not via helper scripts.
+5.1. WHEN the jellyfin role runs THEN jellyfin SHALL run as the official
+     `jellyfin/jellyfin` image, deployed on a single-node k3s server on the
+     Alpine container via a repo-local Helm chart
+     (`kubernetes/charts/jellyfin`) — not via helper scripts. (Alpine's own
+     `jellyfin` apk package exists but is edge-only, incompatible with this
+     fleet's stable Alpine release; see design decision 10.)
 5.2. WHEN data locations are configured THEN jellyfin config and data
      directories SHALL live under `/mnt/samba/configs/jellyfin/`, while cache
      and logs stay on the container rootfs for performance.
 5.3. WHEN media is served THEN libraries SHALL read from `/mnt/samba/media/`.
+5.4. WHEN hardware transcoding is used THEN PCT 100 SHALL pass through the
+     iGPU render nodes (`/dev/dri/renderD128`, `/dev/dri/card1`) for QSV.
 
 ## Requirement 6 — Local DNS and reverse proxy
 
@@ -186,4 +199,3 @@ samba share by an Ansible playbook, so nothing is lost and nothing is wiped.
 - **Privileged containers** — forbidden, not just deferred.
 - **hdd-80** — remains unassigned.
 - **Real TLS certificates / internal CA** — self-signed default cert only.
-- **GPU/QSV transcode passthrough for jellyfin** — not configured yet.

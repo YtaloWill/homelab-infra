@@ -41,6 +41,11 @@ arr_services:
 # left untouched. App wiring: kubernetes/charts/arr-stack/values.yaml.
 arr_stack_dir: /srv/arr
 
+# --- jellyfin (k3s + helm) ---------------------------------------------------
+# Same chart-copy convention as arr_stack_dir. App wiring:
+# kubernetes/charts/jellyfin/values.yaml.
+jellyfin_stack_dir: /srv/jellyfin
+
 # Independent VPN egress (helm value gluetun.enabled). Enabling requires valid
 # credentials in vault (vault_gluetun_environment); no other workload is
 # affected either way — apps opt in via their own proxy settings, pointed at

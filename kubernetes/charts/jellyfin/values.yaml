@@ -1,0 +1,21 @@
+# Wiring lives here; templates are generic.
+# Ansible overrides timezone/paths via a rendered values file.
+
+timezone: America/Sao_Paulo
+pgid: "10000"
+
+image: jellyfin/jellyfin:latest
+port: 8096
+
+# hostPath roots inside PCT 100 (the /mnt/samba bind mount). Cache is *not*
+# on the share — it's an emptyDir on the node's own local disk, per
+# requirement 5.2 (cache/logs stay local for performance).
+configRoot: /mnt/samba/configs/jellyfin/config
+dataRoot: /mnt/samba/configs/jellyfin/data
+mediaRoot: /mnt/samba/media
+
+# iGPU render nodes for QSV. World-rw mode is set at the LXC level (tofu
+# device_passthrough), so no special securityContext/group is needed here.
+gpuDevices:
+  - /dev/dri/renderD128
+  - /dev/dri/card1

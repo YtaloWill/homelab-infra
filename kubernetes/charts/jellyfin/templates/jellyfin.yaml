@@ -1,0 +1,89 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jellyfin
+  labels:
+    app.kubernetes.io/name: jellyfin
+    {{- include "jellyfin.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: jellyfin
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: jellyfin
+        {{- include "jellyfin.labels" . | nindent 8 }}
+    spec:
+      containers:
+        - name: jellyfin
+          image: {{ .Values.image }}
+          env:
+            - name: TZ
+              value: {{ .Values.timezone | quote }}
+            - name: JELLYFIN_CONFIG_DIR
+              value: /config
+            - name: JELLYFIN_DATA_DIR
+              value: /data
+            - name: JELLYFIN_CACHE_DIR
+              value: /cache
+            - name: JELLYFIN_LOG_DIR
+              value: /cache/log
+          ports:
+            - name: http
+              containerPort: {{ .Values.port }}
+          volumeMounts:
+            - name: config
+              mountPath: /config
+            - name: data
+              mountPath: /data
+            - name: cache
+              mountPath: /cache
+            - name: media
+              mountPath: /media
+              readOnly: true
+            {{- range .Values.gpuDevices }}
+            - name: gpu-{{ base . }}
+              mountPath: {{ . }}
+            {{- end }}
+      volumes:
+        - name: config
+          hostPath:
+            path: {{ .Values.configRoot }}
+            type: DirectoryOrCreate
+        - name: data
+          hostPath:
+            path: {{ .Values.dataRoot }}
+            type: DirectoryOrCreate
+        - name: cache
+          emptyDir: {}
+        - name: media
+          hostPath:
+            path: {{ .Values.mediaRoot }}
+            type: Directory
+        {{- range .Values.gpuDevices }}
+        - name: gpu-{{ base . }}
+          hostPath:
+            path: {{ . }}
+            type: CharDevice
+        {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: jellyfin
+  labels:
+    app.kubernetes.io/name: jellyfin
+    {{- include "jellyfin.labels" . | nindent 4 }}
+spec:
+  type: LoadBalancer
+  selector:
+    app.kubernetes.io/name: jellyfin
+  ports:
+    - name: http
+      port: {{ .Values.port }}
+      targetPort: {{ .Values.port }}
+      protocol: TCP

@@ -1,7 +1,8 @@
 ---
-- name: Jellyfin media server
+- name: Jellyfin media server (k3s + helm)
   hosts: jellyfin
   roles:
+    - k3s
     - jellyfin
 
 - name: arr media automation stack (k3s + helm)

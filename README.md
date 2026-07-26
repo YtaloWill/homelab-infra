@@ -26,7 +26,7 @@ New-Item -ItemType SymbolicLink -Path CLAUDE.md -Target AGENTS.md  # Windows
 
 | PCT | Name     | IP              | Runs |
 |-----|----------|-----------------|------|
-| 100 | jellyfin | 192.168.15.102  | Jellyfin (Debian 12, official apt repo) |
+| 100 | jellyfin | 192.168.15.102  | Jellyfin (Alpine, k3s + Helm release `jellyfin`) |
 | 101 | arr      | 192.168.15.103  | k3s + Helm release `arr` (prowlarr, qbittorrent, flaresolverr, radarr, sonarr, bazarr, jellyseerr; optional gluetun) |
 | 104 | proxy    | 192.168.15.104  | dnsmasq + Traefik → `https://<service>.local` |
 | 150 | samba    | 192.168.15.150  | Samba NAS on hdd-500 (media + all service configs) |
