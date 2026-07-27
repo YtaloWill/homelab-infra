@@ -46,7 +46,7 @@ spec:
               mountPath: /media
               readOnly: true
             {{- range .Values.gpuDevices }}
-            - name: gpu-{{ base . }}
+            - name: gpu-{{ base . | lower }}
               mountPath: {{ . }}
             {{- end }}
       volumes:
@@ -65,7 +65,7 @@ spec:
             path: {{ .Values.mediaRoot }}
             type: Directory
         {{- range .Values.gpuDevices }}
-        - name: gpu-{{ base . }}
+        - name: gpu-{{ base . | lower }}
           hostPath:
             path: {{ . }}
             type: CharDevice
