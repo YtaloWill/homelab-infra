@@ -153,9 +153,20 @@ footprint the old containers happened to grow into.
    `/dev/kmsg` shim
    (`/etc/local.d`, symlink to `/dev/console` — kubelet insists on it),
    `kubelet-arg: feature-gates=KubeletInUserNamespace=true` (tolerates missing
-   cgroup/kernel access in a user namespace), and
+   cgroup/kernel access in a user namespace),
    `kube-proxy-arg: conntrack-max-per-core=0` (sysctls are read-only in the
-   userns). Bundled traefik and metrics-server are disabled — ingress lives in
+   userns), and a `cgroup-delegate` OpenRC service (`/etc/init.d`, `before
+   k3s` in its `depend()`) that writes
+   `+cpuset +cpu +hugetlb +memory +pids` into
+   `/sys/fs/cgroup/cgroup.subtree_control` before k3s starts — Alpine has no
+   systemd to delegate cgroup v2 controllers to child cgroups on boot the way
+   it would on a systemd host, so without this kubelet's `ContainerManager`
+   fails to create its `kubepods` cgroup (`cgroup ["kubepods"] has some
+   missing controllers`) and k3s crash-loops every ~5s indefinitely (found by
+   diagnosing PCT 100 doing exactly that: `wait_for: port 6443` passed once,
+   then `helm upgrade --install` hit connection-refused because the API
+   server had already died again). Bundled traefik and metrics-server are
+   disabled — ingress lives in
    the proxy CT and RAM is scarce. k3s + helm come from Alpine's community
    repo (no curl-pipe installers). Services are exposed on the node IP at the
    legacy ports via k3s servicelb (LoadBalancer), so the proxy CT and LAN

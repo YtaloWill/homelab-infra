@@ -67,7 +67,11 @@ must be migrated off each container **before** it's deleted, not after.
 - [ ] 4.2 Create `ansible/inventory/group_vars/all/vault.yml` from the
       example; encrypt with `ansible-vault`; rotate the samba password
       (_Requirements: 8.1, 8.2_)
-- [ ] 4.3 **Pre-delete data migration against the *existing* containers.**
+- [x] 4.3 ~~Pre-delete data migration against the *existing* containers.~~
+      **SKIPPED — moot.** PCT 100/101/150 were already deleted before this
+      rollout reached this step, so there was nothing left to migrate off of.
+      Sub-steps below are kept as historical rationale only; do not act on
+      them.
       Nothing here touches or deletes the old containers — it only copies
       data off them. PCT 150 is the risky one (no rollback once its disk
       image is gone); PCT 100/101 are lower-stakes.
@@ -102,16 +106,23 @@ must be migrated off each container **before** it's deleted, not after.
             once this passes is it safe to proceed to 4.4. Until 150 is
             actually deleted, `rc-service samba start` again on the old
             container so it keeps serving clients
-- [ ] 4.4 Delete PCT 100, 101, 150 — manual, destructive, per-instance
-      approval required; only after 4.3 is verified. **Do not run this yet —
-      4.3 has not happened.**
+- [x] 4.4 Delete PCT 100, 101, 150 — already done (operator-driven, outside
+      this repo's tracked runbook).
+- [ ] 4.4a **Bind-mount source directories must exist before container
+      create** — PVE never auto-creates a `mp` bind mount's source path;
+      `pct create` 403/fails otherwise. On the PVE host: `mkdir -p /mnt/samba
+      /mnt/pve/hdd-500/nas`. Both start empty (no migrated data — see 4.3);
+      `/mnt/samba` gets overlaid by the CIFS mount in 4.7, `/mnt/pve/hdd-500/nas`
+      is where the arr/jellyfin/samba share content will accumulate fresh
+      going forward.
 - [ ] 4.5 `tofu init && tofu apply` — creates PCT 100/101/104/150 fresh per
       this spec (_Requirements: 1.1, 1.7, 2.1, 2.3, 5.4_)
 - [ ] 4.6 `ansible-playbook playbooks/bootstrap.yml`
 - [ ] 4.7 `ansible-playbook playbooks/storage.yml` (_Requirements: 2.*, 3.*_)
-- [ ] 4.8 `ansible-playbook playbooks/site.yml` — configs already migrated in
-      4.3, so jellyfin/arr_stack come up against populated share dirs, not
-      empty ones (_Requirements: 4.*, 5.*, 6.*_)
+- [ ] 4.8 `ansible-playbook playbooks/site.yml` — 4.3 was skipped, so
+      jellyfin/arr_stack come up against **empty** share dirs and
+      fresh-initialize (no migrated library/config state) (_Requirements:
+      4.*, 5.*, 6.*_)
 - [ ] 4.9 Point LAN DHCP/clients DNS at 192.168.15.104
 - [ ] 4.10 Smoke tests from design.md (dig, curl, smbclient, kubectl get
       pods/svc, app UIs)
