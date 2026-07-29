@@ -182,7 +182,12 @@ footprint the old containers happened to grow into.
    overlayfs snapshotter misbehaves, set `snapshotter: native` in
    `/etc/rancher/k3s/config.yaml`). k3s server overhead (~700 MB) plus seven
    app pods was tight against the original 4 GB default — `arr_memory`
-   defaults to 6144 now.
+   defaults to 6144 now. `tzdata` is installed alongside `k3s`/`helm` for the
+   same reason as the other accommodations here: Alpine doesn't ship IANA
+   zoneinfo by default, and k3s's Go runtime needs `/usr/share/zoneinfo` to
+   validate a `CronJob`'s `spec.timeZone` (found via the configarr-sync
+   CronJob failing `helm upgrade --install` with `unknown time zone
+   America/Sao_Paulo` — not a Kubernetes-version gap, a missing-package one).
 
 9. **Bind mounts require a root@pam ticket, not an API token.** Proxmox only
    allows `mp` host-path entries for root@pam. Its permission check compares
