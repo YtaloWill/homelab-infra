@@ -1,10 +1,10 @@
 # Copy to terraform.tfvars (git-ignored) and fill in.
 
-# Must be a root@pam token: Proxmox only allows host-path bind mounts (mp0)
-# for root. Create via: Datacenter -> Permissions -> API Tokens
-# (privilege separation OFF), or:
-#   pveum user token add root@pam tofu --privsep 0
-pve_api_token = "root@pam!tofu=00000000-0000-0000-0000-000000000000"
+# Must be root@pam ticket auth, not an API token: PVE's bind-mount (mp0)
+# permission check requires authuser == "root@pam" exactly, and a token's
+# authuser is "root@pam!<tokenid>" — it never passes.
+pve_username = "root@pam"
+pve_password = "changeme"
 
 # Node name as listed by: pvesh get /nodes
 # ("central" is the datacenter/cluster name, NOT necessarily the node name)

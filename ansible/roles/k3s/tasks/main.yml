@@ -35,6 +35,18 @@
     mode: "0644"
   notify: Restart k3s
 
+- name: cgroup delegation service (Alpine has no systemd to do this for us)
+  ansible.builtin.copy:
+    src: cgroup-delegate.initd
+    dest: /etc/init.d/cgroup-delegate
+    mode: "0755"
+
+- name: Enable and start cgroup delegation
+  ansible.builtin.service:
+    name: cgroup-delegate
+    enabled: true
+    state: started
+
 - name: Enable and start k3s
   ansible.builtin.service:
     name: k3s

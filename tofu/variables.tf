@@ -4,8 +4,14 @@ variable "pve_endpoint" {
   default     = "https://192.168.15.101:8006"
 }
 
-variable "pve_api_token" {
-  description = "API token (root@pam! — bind mounts require root)"
+variable "pve_username" {
+  description = "PVE login for ticket auth, e.g. root@pam (bind mounts require a root@pam ticket, not an API token)"
+  type        = string
+  default     = "root@pam"
+}
+
+variable "pve_password" {
+  description = "PVE password for pve_username (ticket auth)"
   type        = string
   sensitive   = true
 }
@@ -60,15 +66,10 @@ variable "alpine_template_url" {
   default = "http://download.proxmox.com/images/system/alpine-3.21-default_20241217_amd64.tar.xz"
 }
 
-variable "debian_template_url" {
-  type    = string
-  default = "http://download.proxmox.com/images/system/debian-12-standard_12.7-1_amd64.tar.zst"
-}
-
 variable "hdd500_host_path" {
-  description = "Host path of the hdd-500 directory storage (NAS data)"
+  description = "Host path of the migrated NAS data — a subdirectory of the hdd-500 storage, not its bare root, so PVE's own images/template/dump folders on that storage don't end up inside the samba share (see tasks.md 4.3)"
   type        = string
-  default     = "/mnt/pve/hdd-500"
+  default     = "/mnt/pve/hdd-500/nas"
 }
 
 variable "samba_export_path" {
@@ -84,22 +85,28 @@ variable "host_cifs_mount" {
 }
 
 # --- per-container tuning ------------------------------------------------
-# Defaults for 100/101/150 are assumptions; align with `pct config <id>`
-# before first apply so the imported plan is clean (see spec tasks 4.1/4.4).
+# Sizes target each service's own recommended requirements (not whatever the
+# pre-IaC containers happened to drift into — see design decision 4).
 
 variable "jellyfin_ip" {
   type    = string
   default = "192.168.15.102/24"
 }
 
+# Matches k3s's own documented server minimum (2 cores). QSV hardware
+# transcoding (device_passthrough) offloads the actual transcode work to the
+# iGPU, so jellyfin itself stays light on top of that.
 variable "jellyfin_cores" {
   type    = number
   default = 2
 }
 
+# Jellyfin's own hardware guide recommends ~8G for a general deployment;
+# 4G here trades that down given GPU-offloaded transcode + homelab-scale
+# concurrent streams, plus k3s server overhead (~700 MB, design decision 8).
 variable "jellyfin_memory" {
   type    = number
-  default = 2048
+  default = 4096
 }
 
 variable "jellyfin_swap" {
@@ -107,9 +114,12 @@ variable "jellyfin_swap" {
   default = 512
 }
 
+# k3s + containerd image layers + local transcode cache (kept off the samba
+# share for performance, requirement 5.2) need more than a bare native
+# install would.
 variable "jellyfin_disk_gb" {
   type    = number
-  default = 8
+  default = 16
 }
 
 variable "arr_ip" {
@@ -122,9 +132,12 @@ variable "arr_cores" {
   default = 4
 }
 
+# k3s server alone needs ~2G; 7 app pods (prowlarr, qbittorrent, radarr,
+# sonarr, bazarr, jellyseerr, flaresolverr) on top push 4G into eviction
+# territory (design decision 8) — 6G is the recommended headroom.
 variable "arr_memory" {
   type    = number
-  default = 4096
+  default = 6144
 }
 
 variable "arr_swap" {

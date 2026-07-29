@@ -61,10 +61,7 @@ resource "proxmox_virtual_environment_container" "samba" {
   }
 
   lifecycle {
-    # Imported container holding all data — a destructive plan must fail.
+    # Holds all NAS data — a destructive plan must fail.
     prevent_destroy = true
-    # Template lineage of an imported CT is unknowable; without this the
-    # provider would propose replacement.
-    ignore_changes = [operating_system]
   }
 }

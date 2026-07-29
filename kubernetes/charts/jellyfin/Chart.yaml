@@ -1,0 +1,9 @@
+apiVersion: v2
+name: jellyfin
+description: >-
+  Homelab Jellyfin media server. hostPath-backed config/data on the samba
+  share, local transcode cache, iGPU passthrough for QSV hardware
+  transcoding. Exposed on the node IP via k3s servicelb.
+type: application
+version: 0.1.0
+appVersion: "10"

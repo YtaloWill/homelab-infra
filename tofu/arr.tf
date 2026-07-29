@@ -1,7 +1,7 @@
 resource "proxmox_virtual_environment_container" "arr" {
   node_name     = var.node_name
   vm_id         = local.vmid_arr
-  description   = "arr media automation stack (docker compose). Managed by OpenTofu."
+  description   = "arr media automation stack (k3s + Helm). Managed by OpenTofu."
   tags          = ["homelab", "media"]
   unprivileged  = true
   start_on_boot = true
@@ -37,10 +37,9 @@ resource "proxmox_virtual_environment_container" "arr" {
     type             = "alpine"
   }
 
-  # Docker inside an unprivileged CT.
+  # k3s/containerd inside an unprivileged CT.
   features {
     nesting = true
-    keyctl  = true
   }
 
   # For gluetun's wireguard tunnel; harmless while gluetun.enabled is false.
@@ -73,6 +72,5 @@ resource "proxmox_virtual_environment_container" "arr" {
 
   lifecycle {
     prevent_destroy = true
-    ignore_changes  = [operating_system]
   }
 }

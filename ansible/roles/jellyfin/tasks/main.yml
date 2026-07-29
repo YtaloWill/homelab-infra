@@ -11,66 +11,41 @@
       {{ configs_root }}/jellyfin missing — run storage.yml first
       (samba + host CIFS mount), then restart this container.
 
-- name: Keyring directory
+# Config/data persist on the share (requirement 5.2); the chart's cache
+# volume is an emptyDir on the node's own local disk.
+- name: Config/data dirs on the share
   ansible.builtin.file:
-    path: /etc/apt/keyrings
+    path: "{{ configs_root }}/jellyfin/{{ item }}"
+    state: directory
+    mode: "0770"
+  loop: [config, data]
+
+- name: Stack directory
+  ansible.builtin.file:
+    path: "{{ jellyfin_stack_dir }}"
     state: directory
     mode: "0755"
 
-- name: Jellyfin repository key
-  ansible.builtin.get_url:
-    url: https://repo.jellyfin.org/jellyfin_team.gpg.key
-    dest: /etc/apt/keyrings/jellyfin.asc
-    mode: "0644"
-
-- name: Jellyfin apt repository
-  ansible.builtin.apt_repository:
-    repo: >-
-      deb [signed-by=/etc/apt/keyrings/jellyfin.asc]
-      https://repo.jellyfin.org/debian bookworm main
-    filename: jellyfin
-    state: present
-
-- name: Install jellyfin
-  ansible.builtin.apt:
-    name: jellyfin
-    state: present
-    update_cache: true
-
-# gid {{ pgid }} in-container maps to the host CIFS gid — group membership is
-# what grants rw on /mnt/samba (design decision 1).
-- name: Media group matching the CIFS gid mapping
-  ansible.builtin.group:
-    name: mediashare
-    gid: "{{ pgid }}"
-
-- name: Add jellyfin to the media group
-  ansible.builtin.user:
-    name: jellyfin
-    groups: mediashare
-    append: true
-  notify: Restart jellyfin
-
-- name: Systemd override directory
-  ansible.builtin.file:
-    path: /etc/systemd/system/jellyfin.service.d
-    state: directory
-    mode: "0755"
-
-- name: Point config/data at the share (cache/logs stay local)
+- name: Copy the Helm chart to the container
   ansible.builtin.copy:
-    dest: /etc/systemd/system/jellyfin.service.d/override.conf
-    content: |
-      [Service]
-      Environment="JELLYFIN_CONFIG_DIR={{ configs_root }}/jellyfin/config"
-      Environment="JELLYFIN_DATA_DIR={{ configs_root }}/jellyfin/data"
-      Environment="JELLYFIN_CACHE_DIR=/var/cache/jellyfin"
-      Environment="JELLYFIN_LOG_DIR=/var/log/jellyfin"
-    mode: "0644"
-  notify: Restart jellyfin
+    src: "{{ playbook_dir }}/../../kubernetes/charts/jellyfin/"
+    dest: "{{ jellyfin_stack_dir }}/chart/"
 
-- name: Enable and start jellyfin
-  ansible.builtin.systemd:
-    name: jellyfin
-    enabled: true
-    state: started
+- name: Render values
+  ansible.builtin.template:
+    src: values-homelab.yaml.j2
+    dest: "{{ jellyfin_stack_dir }}/values.yaml"
+    mode: "0644"
+
+# helm upgrade --install is idempotent; k8s reconciles the rest. Change
+# reporting is delegated to helm's own release history.
+- name: Deploy the jellyfin release
+  ansible.builtin.command:
+    cmd: >-
+      helm upgrade --install jellyfin {{ jellyfin_stack_dir }}/chart
+      -f {{ jellyfin_stack_dir }}/values.yaml
+      --namespace jellyfin --create-namespace
+      --wait --timeout 5m
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  changed_when: false

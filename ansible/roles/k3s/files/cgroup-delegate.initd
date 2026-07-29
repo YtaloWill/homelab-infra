@@ -1,0 +1,27 @@
+#!/sbin/openrc-run
+# Alpine has no systemd, so nothing delegates cgroup v2 controllers to child
+# cgroups on boot. kubelet creates its own "kubepods" cgroup and needs
+# cpu/cpuset/hugetlb/memory/pids enabled in the parent's subtree_control
+# first, or ContainerManager fails to start and k3s crash-loops.
+
+description="Delegate cgroup v2 controllers so kubelet can set up kubepods"
+
+depend() {
+	need cgroups
+	before k3s
+}
+
+start() {
+	ebegin "Delegating cgroup v2 controllers"
+	# cgroup v2 refuses to enable controllers in subtree_control while this
+	# cgroup still has member processes ("no internal process" rule). Nothing
+	# on Alpine ever moves boot-time processes into a leaf cgroup the way
+	# systemd does, so root is still populated — migrate everything into a
+	# leaf first, then enable controllers on the now-empty parent.
+	mkdir -p /sys/fs/cgroup/init
+	while read -r pid; do
+		echo "$pid" > /sys/fs/cgroup/init/cgroup.procs 2>/dev/null
+	done < /sys/fs/cgroup/cgroup.procs
+	echo "+cpuset +cpu +hugetlb +memory +pids" > /sys/fs/cgroup/cgroup.subtree_control
+	eend $?
+}

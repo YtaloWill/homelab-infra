@@ -15,7 +15,8 @@ homelab/
 │   └── terraform.tfvars.example
 ├── kubernetes/
 │   └── charts/
-│       └── arr-stack/          # Helm chart: arr apps + optional gluetun
+│       ├── arr-stack/          # Helm chart: arr apps + optional gluetun
+│       └── jellyfin/           # Helm chart: jellyfin (iGPU passthrough)
 └── ansible/
     ├── ansible.cfg
     ├── requirements.yml        # collections

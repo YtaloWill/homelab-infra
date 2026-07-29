@@ -26,7 +26,7 @@ New-Item -ItemType SymbolicLink -Path CLAUDE.md -Target AGENTS.md  # Windows
 
 | PCT | Name     | IP              | Runs |
 |-----|----------|-----------------|------|
-| 100 | jellyfin | 192.168.15.102  | Jellyfin (Debian 12, official apt repo) |
+| 100 | jellyfin | 192.168.15.102  | Jellyfin (Alpine, k3s + Helm release `jellyfin`) |
 | 101 | arr      | 192.168.15.103  | k3s + Helm release `arr` (prowlarr, qbittorrent, flaresolverr, radarr, sonarr, bazarr, jellyseerr; optional gluetun) |
 | 104 | proxy    | 192.168.15.104  | dnsmasq + Traefik → `https://<service>.local` |
 | 150 | samba    | 192.168.15.150  | Samba NAS on hdd-500 (media + all service configs) |
@@ -37,11 +37,12 @@ samba share; container rootfs is disposable.
 ## Prerequisites
 
 - OpenTofu ≥ 1.6, Ansible core ≥ 2.15 on your workstation.
-- A **root@pam** API token (host-path bind mounts require root):
-  `pveum user token add root@pam tofu --privsep 0`
+- **root@pam ticket auth** (username/password), not an API token: host-path
+  bind mounts require PVE's authuser to be exactly `root@pam`, which a
+  token's `root@pam!<tokenid>` identity never satisfies.
 - SSH key access to the PVE host as root (Ansible + tofu ssh fallback).
 - `tofu/terraform.tfvars` from the [example](tofu/terraform.tfvars.example)
-  (token, node name, your pubkey) — verify template URLs against
+  (root password, node name, your pubkey) — verify template URLs against
   `pveam available` and sizes against `pct config 100|101|150`.
 - `ansible/inventory/group_vars/all/vault.yml` from the
   [example](ansible/inventory/group_vars/all/vault.yml.example), then

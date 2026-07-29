@@ -4,8 +4,10 @@
 
 Two-layer IaC: **OpenTofu** (bpg/proxmox provider) owns container lifecycle on
 the Proxmox node; **Ansible** owns everything inside containers and the one
-host-level concern (the CIFS mount). Existing containers are *imported*, never
-recreated. A new proxy container (Traefik + dnsmasq) provides
+host-level concern (the CIFS mount). The existing containers (100, 101, 150)
+are being deleted and recreated from this spec rather than imported — the
+only thing that must survive the rebuild is the hdd-500 NAS data (see Key
+decision 4). A new proxy container (Traefik + dnsmasq) provides
 `https://<service>.local` for the LAN.
 
 ```mermaid
@@ -18,8 +20,8 @@ flowchart TB
             DNS[dnsmasq<br/>*.local -> 104]
             TR[Traefik :80/:443]
         end
-        subgraph P100[PCT 100 jellyfin - Debian 12]
-            JF[jellyfin :8096]
+        subgraph P100[PCT 100 jellyfin - Alpine + k3s]
+            JF[helm release jellyfin :8096]
         end
         subgraph P101[PCT 101 arr - Alpine + k3s]
             AR[helm release arr-stack:<br/>prowlarr qbittorrent flaresolverr<br/>radarr sonarr bazarr jellyseerr]
@@ -29,7 +31,7 @@ flowchart TB
             SMB[samba share nas]
         end
         HM["/mnt/samba (host CIFS mount)"]
-        HDD["hdd-500 dir storage<br/>/mnt/pve/hdd-500"]
+        HDD["hdd-500 dir storage<br/>/mnt/pve/hdd-500/nas"]
     end
     C -->|DNS query| DNS
     C -->|https://x.local| TR
@@ -45,14 +47,15 @@ flowchart TB
 
 | PCT | Name     | OS        | IP (static)        | CPU | RAM/Swap MB | Rootfs (local-lvm) | Extra storage |
 |-----|----------|-----------|--------------------|-----|-------------|--------------------|---------------|
-| 100 | jellyfin | Debian 12 | 192.168.15.102/24  | 2   | 2048/512    | 8 GB               | bind: host `/mnt/samba` → `/mnt/samba` |
-| 101 | arr      | Alpine    | 192.168.15.103/24  | 4   | 4096/512    | 12 GB (k3s + images) | bind: host `/mnt/samba` → `/mnt/samba`; `/dev/net/tun` passthrough |
-| 150 | samba    | Alpine    | 192.168.15.150/24  | 4   | 2048/512    | 4 GB               | bind: host `/mnt/pve/hdd-500` → `/srv/nas` |
+| 100 | jellyfin | Alpine + k3s | 192.168.15.102/24  | 2   | 4096/512    | 16 GB              | bind: host `/mnt/samba` → `/mnt/samba`; iGPU passthrough (`/dev/dri/renderD128`, `/dev/dri/card1`) for QSV transcode |
+| 101 | arr      | Alpine    | 192.168.15.103/24  | 4   | 6144/512    | 12 GB (k3s + images) | bind: host `/mnt/samba` → `/mnt/samba`; `/dev/net/tun` passthrough |
+| 150 | samba    | Alpine    | 192.168.15.150/24  | 4   | 2048/512    | 4 GB               | bind: host `/mnt/pve/hdd-500/nas` → `/srv/nas` |
 | 104 | proxy    | Alpine    | 192.168.15.104/24  | 1   | 512/512     | 2 GB               | none (deliberately NAS-independent) |
 
-All unprivileged. Gateway `192.168.15.1`, bridge `vmbr0` (variables).
-Sizes for 100/101/150 are assumptions — align variables with `pct config <id>`
-before the first apply so the plan is a no-op on those attributes.
+All unprivileged. Gateway `192.168.15.1`, bridge `vmbr0` (variables). These
+sizes are the target for the from-scratch rebuild (containers 100/101/150
+are deleted and recreated, not imported) — they don't need to match whatever
+footprint the old containers happened to grow into.
 
 ## Key decisions
 
@@ -75,11 +78,42 @@ before the first apply so the plan is a no-op on those attributes.
    adds a dependency cycle (DNS/proxy down when NAS is down) for zero benefit.
    Requirement 2.2 is interpreted as applying to *stateful* service config.
 
-4. **Import-first workflow.** PCT 100/101/150 are imported
-   (`tofu import ... <node>/<vmid>`). Their resources carry
-   `lifecycle { prevent_destroy = true }` (a destructive plan errors out) and
-   `ignore_changes = [operating_system]` (template lineage of an imported
-   container is unknowable; without this the provider would force replacement).
+4. **Delete-and-recreate, not import.** PCT 100/101/150 predate this repo and
+   drifted from it (ad-hoc resizing, a community-script install on 100, an
+   undocumented GPU passthrough hand-added to 101 that nothing consumes).
+   Rather than reconciling tofu to match that drift, the containers are
+   deleted and recreated fresh via `tofu apply` so they exactly match this
+   spec. `lifecycle { prevent_destroy = true }` guards them once created (a
+   destructive plan errors out); there's no `ignore_changes` on
+   `operating_system` because a freshly created container's OS genuinely
+   matches what's declared — no imported-template ambiguity to ignore.
+   **Data safety is the one hard constraint on the delete step**: hdd-500
+   currently backs PCT 150's rootfs disk directly (`pct config 150` shows
+   `rootfs: hdd-500:150/vm-150-disk-0.raw,size=458G`, no separate mount) —
+   simply destroying that container would destroy the NAS payload with it.
+   Before deleting PCT 150, the real directory tree must be copied out of
+   that raw disk image onto `/mnt/pve/hdd-500/nas` — a *subdirectory* of
+   hdd-500, not its bare root, so PVE's own `images/`/`template/`/`dump/`
+   folders on that storage don't end up inside the samba share (`pct mount
+   150` + `rsync`, full runbook in tasks.md 4.3 — including a preflight
+   space check, since the copy temporarily needs ~2x the data size free on
+   hdd-500 until the old disk is deleted). The freshly recreated PCT 150 —
+   built per Requirement 2.1, with a small local-lvm rootfs and
+   `hdd500_host_path` (`/mnt/pve/hdd-500/nas`) bind-mounted at `/srv/nas` —
+   then reattaches to already-populated data instead of an empty share.
+   PCT 100 and 101 are *not* data-free either: jellyfin's
+   `/etc/jellyfin` + `/var/lib/jellyfin` (library metadata, watch history,
+   users) and arr's legacy `/srv/<service>/config` dirs are still local to
+   those containers today, not yet on the samba share. `migrate-configs.yml`
+   already does exactly this copy (stop service → rsync to
+   `configs_root` → leave source untouched) — it must be run against the
+   *existing* PCT 100/101 before they're deleted, not after the rebuild. Once
+   migrated, the fresh containers (with `/mnt/samba` bind-mounted from the
+   start) find their config already on the share and never fresh-initialize
+   into an empty state. Order: `migrate-configs.yml` against old 100/101 →
+   extract hdd-500's data out of 150's disk image → delete 100/101/150 →
+   `tofu apply` → `bootstrap.yml`/`storage.yml`/`site.yml` against the new
+   containers.
 
 5. **gluetun is an independent egress *service*, not a network wrapper.**
    Considered and rejected: (a) sharing gluetun's network namespace with
@@ -114,12 +148,29 @@ before the first apply so the plan is a no-op on those attributes.
 8. **arr runs on k3s inside the unprivileged LXC; deployed by a repo-local
    Helm chart.** k3s (single node, server mode) is the smallest practical k8s.
    Unprivileged-LXC accommodations, all encoded in the `k3s` role:
-   `nesting=1,keyctl=1` (already set for the container), a `/dev/kmsg` shim
+   `nesting=1` (keyctl turned out unneeded for k3s/containerd — dropped after
+   `pct config 101` showed the live container never actually had it set), a
+   `/dev/kmsg` shim
    (`/etc/local.d`, symlink to `/dev/console` — kubelet insists on it),
    `kubelet-arg: feature-gates=KubeletInUserNamespace=true` (tolerates missing
-   cgroup/kernel access in a user namespace), and
+   cgroup/kernel access in a user namespace),
    `kube-proxy-arg: conntrack-max-per-core=0` (sysctls are read-only in the
-   userns). Bundled traefik and metrics-server are disabled — ingress lives in
+   userns), and a `cgroup-delegate` OpenRC service (`/etc/init.d`, `before
+   k3s` in its `depend()`) — Alpine has no systemd to delegate cgroup v2
+   controllers to child cgroups on boot the way it would on a systemd host,
+   so without this kubelet's `ContainerManager` fails to create its
+   `kubepods` cgroup (`cgroup ["kubepods"] has some missing controllers`) and
+   k3s crash-loops every ~5s indefinitely (found by diagnosing PCT 100 doing
+   exactly that: `wait_for: port 6443` passed once, then `helm upgrade
+   --install` hit connection-refused because the API server had already died
+   again). The service does two things, in order: migrates every process
+   already in the root cgroup into a leaf (`/sys/fs/cgroup/init`) — cgroup v2
+   refuses to enable controllers in a cgroup's `subtree_control` while it
+   still holds member processes directly, and nothing else ever moves them
+   out on Alpine — then writes `+cpuset +cpu +hugetlb +memory +pids` into
+   the now-empty root's `subtree_control` so kubelet can create `kubepods`
+   under it. Bundled traefik and metrics-server are
+   disabled — ingress lives in
    the proxy CT and RAM is scarce. k3s + helm come from Alpine's community
    repo (no curl-pipe installers). Services are exposed on the node IP at the
    legacy ports via k3s servicelb (LoadBalancer), so the proxy CT and LAN
@@ -128,21 +179,59 @@ before the first apply so the plan is a no-op on those attributes.
    `values.yaml` as the single source of app wiring. Known risks, accepted:
    k3s in an unprivileged LXC is the least-trodden path in this design (if
    overlayfs snapshotter misbehaves, set `snapshotter: native` in
-   `/etc/rancher/k3s/config.yaml`), and k3s server overhead (~700 MB) eats into
-   the container's 4 GB — bump `arr_memory` to 6144 if pods get evicted.
+   `/etc/rancher/k3s/config.yaml`). k3s server overhead (~700 MB) plus seven
+   app pods was tight against the original 4 GB default — `arr_memory`
+   defaults to 6144 now.
 
-9. **Bind mounts require root API access.** Proxmox only allows `mp` host-path
-   entries for root@pam. The tofu provider must authenticate with a root@pam
-   API token (documented in tfvars example).
+9. **Bind mounts require a root@pam ticket, not an API token.** Proxmox only
+   allows `mp` host-path entries for root@pam. Its permission check compares
+   authuser literally against `root@pam`; an API token's authuser is
+   `root@pam!<tokenid>`, which never matches — token auth 403s on every
+   container with a bind mount (arr, jellyfin, samba). The tofu provider
+   authenticates with `username`/`password` (ticket auth) instead
+   (documented in tfvars example).
+
+10. **Jellyfin runs on Alpine via k3s + Helm, not Debian via apt.**
+    Originally PCT 100 was declared as a Debian 12 container so jellyfin
+    could install from `repo.jellyfin.org`'s Debian/Ubuntu apt repo — the
+    one distro family Jellyfin ships a first-party native package for.
+    Switched to Alpine (matching every other container in the fleet) for a
+    simpler, uniform template story. Alpine does have its own
+    `jellyfin`/`jellyfin-openrc` apk packages, but they live in the `edge`
+    branch of Alpine's community repo — not in the stable release this
+    fleet's template pins (unlike `k3s`/`helm`, which are in the stable
+    community repo already). Mixing an edge package onto a stable base is
+    the kind of fragile pinning this repo avoids elsewhere.
+    Two container-runtime paths were considered for running the official
+    `jellyfin/jellyfin` image: plain Docker (Jellyfin's own documented route
+    for anything outside Debian/Ubuntu, and what this repo's legacy compose
+    era already proved out), or k3s + a repo-local Helm chart, mirroring the
+    arr stack. Went with **k3s + Helm** — operator's explicit call, for
+    consistency with arr's existing pattern (one deployment model across the
+    fleet, one `helm upgrade --install` mental model, one `k3s` role reused
+    unmodified on both containers) — even though it costs a second ~700 MB
+    k3s control plane (design decision 8) that a single app wouldn't
+    otherwise need. `nesting=1` is set (no `keyctl` — that's Docker-specific,
+    not needed for k3s/containerd, same finding as arr). GPU access: PVE
+    `device_passthrough` puts the iGPU render nodes in the LXC with
+    `mode = "0666"` (world-rw — sidesteps needing to know the pod's
+    render/video gid up front, which isn't guaranteed to match what the old
+    Debian box happened to have); the chart hostPath-mounts them
+    (`type: CharDevice`) into the jellyfin pod. Config/data volumes are
+    hostPath-mounted from the samba share (requirement 5.2); cache is an
+    `emptyDir` (node-local, not the share) so transcode scratch I/O isn't
+    fighting CIFS latency. PCT 100 and PCT 101 each run their *own*
+    single-node k3s — no cross-node clustering, consistent with the
+    single-node-per-stack Non-Goal.
 
 ## Components
 
 ### OpenTofu (`tofu/`)
 
 - `versions.tf`, `providers.tf` — bpg/proxmox ~> 0.66, endpoint + token vars.
-- `templates.tf` — `proxmox_virtual_environment_download_file` for Alpine and
-  Debian 12 official templates (URLs are variables; verify current filenames
-  with `pveam available`).
+- `templates.tf` — `proxmox_virtual_environment_download_file` for the Alpine
+  official template (URL is a variable; verify current filename with
+  `pveam available`). Every container in the fleet is Alpine.
 - `jellyfin.tf`, `arr.tf`, `samba.tf`, `proxy.tf` — one container each, as per
   the inventory table.
 - `variables.tf` / `terraform.tfvars.example` — all tunables; token is
@@ -156,8 +245,8 @@ Roles:
 | Role           | Target   | Responsibility |
 |----------------|----------|----------------|
 | `samba_server` | PCT 150  | samba pkg, `smb.conf` ([nas] share, SMB3, sambauser), share tree (`media/*`, `configs/*`), passdb user from Vault |
-| `jellyfin`     | PCT 100  | official apt repo, package, gid-10000 group membership, systemd override pointing config/data at `/mnt/samba/configs/jellyfin/` (cache/logs local) |
-| `k3s`          | PCT 101  | apk k3s + helm, `/dev/kmsg` shim, `/etc/rancher/k3s/config.yaml` (disable traefik/metrics-server, userns kubelet/kube-proxy args), service up |
+| `k3s`          | PCT 100, PCT 101 | apk k3s + helm, `/dev/kmsg` shim, `/etc/rancher/k3s/config.yaml` (disable traefik/metrics-server, userns kubelet/kube-proxy args), service up — reused unmodified on both, two independent single-node clusters |
+| `jellyfin`     | PCT 100  | copies `kubernetes/charts/jellyfin` to the CT, renders values (paths on share), `helm upgrade --install` |
 | `arr_stack`    | PCT 101  | copies `kubernetes/charts/arr-stack` to the CT, renders values (configs on share, `gluetun.enabled`, Vault creds), `helm upgrade --install` |
 | `proxy`        | PCT 104  | dnsmasq (`address=/local/104`, upstream forwarders), Traefik binary + OpenRC service, static config (web→websecure redirect, file provider), dynamic routers/services rendered from `proxy_services` list |
 
@@ -199,12 +288,14 @@ configs/
 
 ## Error handling & safety
 
-- `prevent_destroy` on PCT 100/101/150; plan fails rather than recreates.
-- Rootfs shrink is impossible on LXC → provider errors; fix by aligning the
-  size variable with reality, never by recreating.
+- `prevent_destroy` on PCT 100/101/150 guards them once the rebuild is done;
+  it does not block the deliberate, operator-driven delete that precedes it.
 - Migration playbook is guarded: copies only when destination is empty,
   never deletes sources (requirement 7). Rollback = point config paths back
   at the untouched originals.
+- hdd-500 extraction (PCT 150) is manual and must complete, and be verified,
+  before that container is deleted — there is no rollback once the disk
+  image backing it is gone.
 - Host CIFS mount uses `nofail,_netdev` so the PVE host boots when the NAS
   container is down.
 - gluetun down/disabled affects nothing else by construction (own Deployment,
@@ -220,14 +311,18 @@ configs/
 
 - **Static:** `tofu fmt -check`, `tofu validate`; `ansible-lint` /
   `ansible-playbook --syntax-check` for every playbook; `helm lint` +
-  `helm template` for the chart (both gluetun.enabled states).
-- **Plan review:** after import, `tofu plan` against 100/101/150 must show no
-  destroy/replace actions — that is the import acceptance gate.
+  `helm template` for both charts (arr-stack: both gluetun.enabled states).
+- **Plan review:** `tofu plan` should show 100/101/150 being created fresh
+  (expected, since the old containers are deleted first) with no unexpected
+  diffs against this spec's declared config.
 - **Ansible dry-run:** `--check --diff` against live hosts before first real run.
 - **Smoke tests (post-apply):**
   - `dig +short jellyfin.local @192.168.15.104` → `192.168.15.104`
   - `curl -kIs https://jellyfin.local --resolve jellyfin.local:443:192.168.15.104` → 200/302
   - `smbclient -L //192.168.15.150 -U sambauser` lists `nas`
+  - `kubectl get pods -n jellyfin` Running; `kubectl get svc -n jellyfin`
+    shows LoadBalancer external IP 192.168.15.102:8096; hardware transcode
+    picks up the iGPU (Dashboard → Playback in the jellyfin web UI).
   - `kubectl get pods -n arr` all Running; `kubectl get svc -n arr` shows
     LoadBalancer external IP 192.168.15.103 on the legacy ports; each web UI
     answers.
