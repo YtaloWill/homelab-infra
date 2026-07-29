@@ -6,6 +6,13 @@ tz: America/Sao_Paulo
 puid: 1000
 pgid: 10000
 
+# --- hdd-500 (physical disk backing the samba export) ---------------------
+# sdX device letters shift across a physical disconnect/reconnect; the
+# filesystem UUID is the only stable way to find it again (see
+# recover-nas-mount.yml). Get it with `blkid /dev/sdX1` on the PVE host.
+hdd500_uuid: 932511de-e45b-4035-bacf-0fe88fd30bcb
+hdd500_mount_path: /mnt/pve/hdd-500
+
 # --- samba / storage ------------------------------------------------------
 samba_host: 192.168.15.150
 samba_share: nas

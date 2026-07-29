@@ -1,0 +1,57 @@
+---
+# Run after any hdd-500 disconnect/reconnect (or whenever samba/jellyfin/arr
+# can't read their files but `pct list` shows everything running). A bind
+# mount pins the mounted filesystem *instance* at container-start time, not
+# the path: when the host mounts a fresh instance over hdd-500 (new device
+# node after a reconnect), PCT150 is still bound to the old, now-dead
+# instance until it's rebooted. That breaks samba's export, which breaks the
+# host's CIFS remount of it, which breaks jellyfin/arr one layer up — so the
+# fix has to cascade in this order.
+- name: Refresh PCT150's bind mount of hdd-500
+  hosts: proxmox
+  tasks:
+    - name: Find hdd-500's current device node (sdX letters shift across reconnects)
+      ansible.builtin.command: "blkid -U {{ hdd500_uuid }}"
+      register: hdd500_device
+      changed_when: false
+
+    - name: Check whether hdd-500 is already mounted
+      ansible.builtin.command: "findmnt -n {{ hdd500_mount_path }}"
+      register: hdd500_findmnt
+      failed_when: false
+      changed_when: false
+
+    - name: Mount hdd-500 at {{ hdd500_mount_path }}
+      ansible.builtin.command: "mount {{ hdd500_device.stdout }} {{ hdd500_mount_path }}"
+      when: hdd500_findmnt.rc != 0
+
+    - name: Reboot samba (150)
+      ansible.builtin.command: pct reboot 150
+
+    - name: Wait for samba service to come back up
+      ansible.builtin.command: pct exec 150 -- rc-service samba status
+      register: samba_status
+      until: samba_status.rc == 0
+      retries: 10
+      delay: 3
+      changed_when: false
+
+    - name: Confirm hdd-500 is actually readable inside 150
+      ansible.builtin.command: "pct exec 150 -- ls {{ samba_export_path }}"
+      changed_when: false
+
+- name: Force-refresh the host's CIFS mount and its consumers
+  hosts: proxmox
+  tasks:
+    - name: Unmount {{ host_cifs_mount }}
+      ansible.posix.mount:
+        path: "{{ host_cifs_mount }}"
+        state: unmounted
+
+    - name: Remount {{ host_cifs_mount }}
+      ansible.posix.mount:
+        path: "{{ host_cifs_mount }}"
+        src: "//{{ samba_host }}/{{ samba_share }}"
+        fstype: cifs
+        opts: "{{ cifs_mount_opts }}"
+        state: mounted
