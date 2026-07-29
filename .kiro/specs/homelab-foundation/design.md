@@ -26,6 +26,7 @@ flowchart TB
         subgraph P101[PCT 101 arr - Alpine + k3s]
             AR[helm release arr-stack:<br/>prowlarr qbittorrent flaresolverr<br/>radarr sonarr bazarr jellyseerr]
             GL[gluetun - optional Deployment<br/>HTTP proxy :8888]
+            CF[configarr-sync - optional CronJob<br/>PT-BR TRaSH-Guides sync]
         end
         subgraph P150[PCT 150 samba - Alpine]
             SMB[samba share nas]
@@ -224,6 +225,35 @@ footprint the old containers happened to grow into.
     single-node k3s — no cross-node clustering, consistent with the
     single-node-per-stack Non-Goal.
 
+11. **Configarr syncs PT-BR TRaSH-Guides quality profiles, vendored rather
+    than fetched live.** Mirrors gluetun's independence pattern exactly (own
+    objects gated by `configarr.enabled`, nothing else references it) but as
+    a `CronJob` instead of a `Deployment` — it's a periodic sync, not a
+    standing service. Two source choices drove the design:
+    - **Vendored, not live-fetched.** `trash-guides-ptbr`'s own reference
+      Kubernetes manifests re-download `config.yml` and every custom-format
+      JSON from GitHub via an `initContainer` on each run. Rejected that in
+      favor of vendoring both into `kubernetes/charts/arr-stack/files/configarr/`
+      (Helm `.Files.Get`/`.Files.Glob` into two ConfigMaps) — consistent with
+      this repo's everything-in-git IaC posture (decision echoed in the
+      arr-stack chart already being "no third-party chart dependency"), and
+      it removes a runtime dependency on GitHub being reachable from PCT 101
+      on every scheduled run. Trade-off, accepted: scoring only updates when
+      someone re-runs `scripts/update-configarr.sh` and commits the diff, not
+      automatically.
+    - **DUBLADO + LEGENDADO merged, not either/or.** Upstream ships each
+      language-priority variant (and an HDR-ON flavor of each) as a
+      standalone `config.yml` defining a quality profile literally named
+      `HD`. Operator wants both available rather than picking one, so
+      `update-configarr.sh` renames each variant's `HD` profile (and every
+      `custom_formats[].assign_scores_to[]` reference to it) to
+      `HD (Dublado)` / `HD (Legendado)` before concatenating their
+      `custom_formats`/`quality_profiles` arrays — otherwise the second
+      Configarr sync would silently overwrite the first's same-named
+      profile. SEM-ANIMES (no anime-instance split) and no HDR-ON were the
+      operator's explicit picks, matching the fleet's single sonarr/radarr
+      topology (Non-Goals).
+
 ## Components
 
 ### OpenTofu (`tofu/`)
@@ -247,7 +277,7 @@ Roles:
 | `samba_server` | PCT 150  | samba pkg, `smb.conf` ([nas] share, SMB3, sambauser), share tree (`media/*`, `configs/*`), passdb user from Vault |
 | `k3s`          | PCT 100, PCT 101 | apk k3s + helm, `/dev/kmsg` shim, `/etc/rancher/k3s/config.yaml` (disable traefik/metrics-server, userns kubelet/kube-proxy args), service up — reused unmodified on both, two independent single-node clusters |
 | `jellyfin`     | PCT 100  | copies `kubernetes/charts/jellyfin` to the CT, renders values (paths on share), `helm upgrade --install` |
-| `arr_stack`    | PCT 101  | copies `kubernetes/charts/arr-stack` to the CT, renders values (configs on share, `gluetun.enabled`, Vault creds), `helm upgrade --install` |
+| `arr_stack`    | PCT 101  | copies `kubernetes/charts/arr-stack` to the CT, renders values (configs on share, `gluetun.enabled`, `configarr.enabled`, Vault creds), `helm upgrade --install` |
 | `proxy`        | PCT 104  | dnsmasq (`address=/local/104`, upstream forwarders), Traefik binary + OpenRC service, static config (web→websecure redirect, file provider), dynamic routers/services rendered from `proxy_services` list |
 
 Playbooks:
@@ -283,7 +313,7 @@ Playbooks:
 media/{downloads,movies,shows,test_movies,test_shows}
 configs/
   jellyfin/{config,data}
-  arr/{prowlarr,qbittorrent,radarr,sonarr,bazarr,jellyseerr}
+  arr/{prowlarr,qbittorrent,radarr,sonarr,bazarr,jellyseerr,configarr}
 ```
 
 ## Error handling & safety
@@ -300,6 +330,10 @@ configs/
   container is down.
 - gluetun down/disabled affects nothing else by construction (own Deployment,
   no coupling); only an app explicitly pointed at the proxy loses egress.
+- configarr down/disabled/failing affects nothing else by construction (own
+  CronJob, read/write only against sonarr/radarr's own API) — a failed sync
+  just leaves quality profiles at their last-synced state; `failedJobsHistoryLimit: 1`
+  keeps failure evidence around without accumulating job objects.
 - Ordering: samba must be configured (storage.yml) before jellyfin/arr configs
   on the share are usable; and the legacy compose stack must be stopped
   (migrate-configs.yml) before k3s servicelb can bind the same ports — the
@@ -311,7 +345,8 @@ configs/
 
 - **Static:** `tofu fmt -check`, `tofu validate`; `ansible-lint` /
   `ansible-playbook --syntax-check` for every playbook; `helm lint` +
-  `helm template` for both charts (arr-stack: both gluetun.enabled states).
+  `helm template` for both charts (arr-stack: both `gluetun.enabled` and
+  both `configarr.enabled` states).
 - **Plan review:** `tofu plan` should show 100/101/150 being created fresh
   (expected, since the old containers are deleted first) with no unexpected
   diffs against this spec's declared config.

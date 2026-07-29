@@ -41,6 +41,7 @@ arr_services:
   - sonarr
   - bazarr
   - jellyseerr
+  - configarr
 
 # --- arr stack (k3s + helm) -------------------------------------------------
 # Chart copy + rendered values live under /srv (existing convention on
@@ -58,6 +59,12 @@ jellyfin_stack_dir: /srv/jellyfin
 # affected either way — apps opt in via their own proxy settings, pointed at
 # http://192.168.15.103:8888 (design decision 5).
 gluetun_enabled: false
+
+# Configarr sync CronJob (helm value configarr.enabled). Requires
+# vault_configarr_environment (sonarr/radarr API keys); independent of every
+# other workload — it only reads from the sonarr/radarr Services already
+# created by arr_stack.
+configarr_enabled: true
 
 # --- proxy / DNS ----------------------------------------------------------
 proxy_ip: 192.168.15.104

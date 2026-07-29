@@ -53,6 +53,13 @@ rules (per-instance approval for anything destructive or shared-state).
 - [x] 3.9 `migrate-configs.yml` — stop → copy-iff-empty → start; never
       deletes sources (_Requirements: 7.1, 7.2, 7.3_)
 - [x] 3.10 `site.yml` orchestration
+- [ ] 3.11 `templates/configarr.yaml` (Secret + 2 ConfigMaps + CronJob, gated
+      by `configarr.enabled`) + `scripts/update-configarr.sh` +
+      `arr_services`/`vault_configarr_environment`/`values-homelab.yaml.j2`
+      wiring authored; vendored `files/configarr/config.yml` +
+      `custom-formats/*.json` still need `scripts/update-configarr.sh` run
+      (git clone + yq, not run by the agent per operator rules) and the
+      diff reviewed before this can be checked off (_Requirements: 9.1–9.7_)
 
 ## Phase 4 — Live rollout: delete and recreate (operator-driven, in order)
 

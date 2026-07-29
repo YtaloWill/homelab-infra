@@ -14,3 +14,12 @@ gluetun:
     {{ key }}: {{ value | string | to_json }}
 {% endfor %}
 {% endif %}
+
+configarr:
+  enabled: {{ configarr_enabled | default(false) | bool | lower }}
+{% if configarr_enabled | default(false) %}
+  env:
+{% for key, value in (vault_configarr_environment | default({})).items() %}
+    {{ key }}: {{ value | string | to_json }}
+{% endfor %}
+{% endif %}
