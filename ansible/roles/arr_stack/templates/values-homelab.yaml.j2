@@ -17,6 +17,7 @@ gluetun:
 
 configarr:
   enabled: {{ configarr_enabled | default(false) | bool | lower }}
+  syncTrigger: {{ configarr_sync_trigger | default("1") | to_json }}
 {% if configarr_enabled | default(false) %}
   env:
 {% for key, value in (vault_configarr_environment | default({})).items() %}

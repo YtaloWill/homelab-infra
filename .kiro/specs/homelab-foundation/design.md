@@ -26,7 +26,7 @@ flowchart TB
         subgraph P101[PCT 101 arr - Alpine + k3s]
             AR[helm release arr-stack:<br/>prowlarr qbittorrent flaresolverr<br/>radarr sonarr bazarr jellyseerr]
             GL[gluetun - optional Deployment<br/>HTTP proxy :8888]
-            CF[configarr-sync - optional CronJob<br/>PT-BR TRaSH-Guides sync]
+            CF[configarr-sync - optional one-shot Job<br/>PT-BR TRaSH-Guides sync, manually triggered]
         end
         subgraph P150[PCT 150 samba - Alpine]
             SMB[samba share nas]
@@ -182,12 +182,10 @@ footprint the old containers happened to grow into.
    overlayfs snapshotter misbehaves, set `snapshotter: native` in
    `/etc/rancher/k3s/config.yaml`). k3s server overhead (~700 MB) plus seven
    app pods was tight against the original 4 GB default — `arr_memory`
-   defaults to 6144 now. `tzdata` is installed alongside `k3s`/`helm` for the
-   same reason as the other accommodations here: Alpine doesn't ship IANA
-   zoneinfo by default, and k3s's Go runtime needs `/usr/share/zoneinfo` to
-   validate a `CronJob`'s `spec.timeZone` (found via the configarr-sync
-   CronJob failing `helm upgrade --install` with `unknown time zone
-   America/Sao_Paulo` — not a Kubernetes-version gap, a missing-package one).
+   defaults to 6144 now. `tzdata` is installed alongside `k3s`/`helm`:
+   Alpine doesn't ship IANA zoneinfo by default, and k3s's Go runtime reads
+   `/usr/share/zoneinfo` to resolve IANA zone names used anywhere in the
+   cluster.
 
 9. **Bind mounts require a root@pam ticket, not an API token.** Proxmox only
    allows `mp` host-path entries for root@pam. Its permission check compares
@@ -230,34 +228,36 @@ footprint the old containers happened to grow into.
     single-node k3s — no cross-node clustering, consistent with the
     single-node-per-stack Non-Goal.
 
-11. **Configarr syncs PT-BR TRaSH-Guides quality profiles, vendored rather
-    than fetched live.** Mirrors gluetun's independence pattern exactly (own
-    objects gated by `configarr.enabled`, nothing else references it) but as
-    a `CronJob` instead of a `Deployment` — it's a periodic sync, not a
-    standing service. Two source choices drove the design:
-    - **Vendored, not live-fetched.** `trash-guides-ptbr`'s own reference
-      Kubernetes manifests re-download `config.yml` and every custom-format
-      JSON from GitHub via an `initContainer` on each run. Rejected that in
-      favor of vendoring both into `kubernetes/charts/arr-stack/files/configarr/`
-      (Helm `.Files.Get`/`.Files.Glob` into two ConfigMaps) — consistent with
-      this repo's everything-in-git IaC posture (decision echoed in the
-      arr-stack chart already being "no third-party chart dependency"), and
-      it removes a runtime dependency on GitHub being reachable from PCT 101
-      on every scheduled run. Trade-off, accepted: scoring only updates when
-      someone re-runs `scripts/update-configarr.sh` and commits the diff, not
-      automatically.
-    - **DUBLADO + LEGENDADO merged, not either/or.** Upstream ships each
-      language-priority variant (and an HDR-ON flavor of each) as a
-      standalone `config.yml` defining a quality profile literally named
-      `HD`. Operator wants both available rather than picking one, so
-      `update-configarr.sh` renames each variant's `HD` profile (and every
-      `custom_formats[].assign_scores_to[]` reference to it) to
-      `HD (Dublado)` / `HD (Legendado)` before concatenating their
-      `custom_formats`/`quality_profiles` arrays — otherwise the second
-      Configarr sync would silently overwrite the first's same-named
-      profile. SEM-ANIMES (no anime-instance split) and no HDR-ON were the
-      operator's explicit picks, matching the fleet's single sonarr/radarr
-      topology (Non-Goals).
+11. **Configarr syncs PT-BR TRaSH-Guides quality profiles into sonarr/radarr
+    as a one-shot Job, triggered on demand.** Mirrors gluetun's independence
+    pattern: own objects gated by `configarr.enabled`, nothing else
+    references it.
+    - **Job named `configarr-sync-{{ .Values.configarr.syncTrigger }}`.**
+      `configarr.syncTrigger` (Ansible: `configarr_sync_trigger`, a plain
+      inventory var) is part of the Job's name. The first time
+      `configarr.enabled` goes true, `configarr-sync-1` is a name Helm
+      creates fresh as part of that `helm upgrade --install`, which is what
+      seeds the profiles on first rollout. A resync happens by bumping the
+      trigger to a new value and re-applying, giving Helm a new object name
+      to create; an unchanged trigger keeps the existing Job as-is across
+      routine `helm upgrade --install` runs. `backoffLimit: 2` bounds
+      retries against sonarr/radarr's API, and `ttlSecondsAfterFinished:
+      86400` cleans up completed Job objects from past triggers.
+    - **Config vendored under `kubernetes/charts/arr-stack/files/configarr/`.**
+      `scripts/update-configarr.sh` clones `trash-guides-ptbr` and merges
+      `config-DUBLADO-SEM-ANIMES.yaml` + `config-LEGENDADO-SEM-ANIMES.yaml`
+      into one `config.yml`, loaded at render time via Helm's
+      `.Files.Get`/`.Files.Glob` into two ConfigMaps alongside the
+      `custom-formats/*.json` files — consistent with the arr-stack chart's
+      one-`values.yaml`-source-of-truth posture.
+    - **DUBLADO and LEGENDADO merged into `HD (Dublado)` and
+      `HD (Legendado)` as two coexisting quality profiles.**
+      `update-configarr.sh` renames each source variant's `HD` profile (and
+      every `custom_formats[].assign_scores_to[]` reference to it) before
+      concatenating their `custom_formats`/`quality_profiles` arrays,
+      Dublado first, so both profiles land in sonarr/radarr side by side.
+      SEM-ANIMES matches the fleet's single sonarr/radarr instance
+      (Non-Goals).
 
 ## Components
 
@@ -335,10 +335,10 @@ configs/
   container is down.
 - gluetun down/disabled affects nothing else by construction (own Deployment,
   no coupling); only an app explicitly pointed at the proxy loses egress.
-- configarr down/disabled/failing affects nothing else by construction (own
-  CronJob, read/write only against sonarr/radarr's own API) — a failed sync
-  just leaves quality profiles at their last-synced state; `failedJobsHistoryLimit: 1`
-  keeps failure evidence around without accumulating job objects.
+- configarr's own one-shot Job reads/writes only against sonarr/radarr's own
+  API; a failed sync leaves quality profiles at their last-synced state.
+  `backoffLimit: 2` bounds retries; `ttlSecondsAfterFinished` cleans up
+  completed/failed Job objects automatically.
 - Ordering: samba must be configured (storage.yml) before jellyfin/arr configs
   on the share are usable; and the legacy compose stack must be stopped
   (migrate-configs.yml) before k3s servicelb can bind the same ports — the

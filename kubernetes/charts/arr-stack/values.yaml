@@ -96,13 +96,15 @@ gluetun:
   env: {}
 
 # Configarr: syncs PT-BR TRaSH-Guides (trash-guides-ptbr) quality profiles
-# and custom formats into the sonarr/radarr instances above. Independent
-# CronJob, talks to the in-namespace sonarr/radarr Services. config.yml and
-# custom-formats/ are vendored under files/configarr/ (see scripts/
-# update-configarr.sh) — not fetched live on every run.
+# and custom formats into the sonarr/radarr instances above, via a one-shot
+# Job that runs automatically the first time it's introduced. Bump
+# syncTrigger to a new value to trigger a resync — see the comment in
+# templates/configarr.yaml. Talks to the in-namespace sonarr/radarr
+# Services. config.yml and custom-formats/ are vendored under
+# files/configarr/ (see scripts/update-configarr.sh).
 configarr:
   enabled: false
-  schedule: "0 3 * * *"
+  syncTrigger: "1"
   # SONARR_API_KEY / RADARR_API_KEY; supplied by Ansible from Vault, becomes
   # part of the configarr-secrets Secret. Never commit values.
   env: {}

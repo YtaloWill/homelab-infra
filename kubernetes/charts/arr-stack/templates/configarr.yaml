@@ -39,57 +39,60 @@ data:
     {{- $.Files.Get $path | nindent 4 }}
   {{- end }}
 ---
+# One-shot sync Job. The name carries configarr.syncTrigger (ansible:
+# configarr_sync_trigger in inventory/group_vars/all/main.yml): the first
+# time configarr.enabled goes true, configarr-sync-1 is a new object name,
+# so helm upgrade --install creates and runs it as part of that deploy —
+# this is what seeds the profiles automatically. A resync is triggered by
+# bumping configarr_sync_trigger to a new value and re-applying, which gives
+# Helm a fresh object name to create.
 apiVersion: batch/v1
-kind: CronJob
+kind: Job
 metadata:
-  name: configarr-sync
+  name: configarr-sync-{{ .Values.configarr.syncTrigger }}
   labels:
     app.kubernetes.io/name: configarr
     {{- include "arr-stack.labels" . | nindent 4 }}
 spec:
-  schedule: {{ .Values.configarr.schedule | quote }}
-  timeZone: {{ .Values.timezone | quote }}
-  successfulJobsHistoryLimit: 1
-  failedJobsHistoryLimit: 1
-  jobTemplate:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: configarr
+        {{- include "arr-stack.labels" . | nindent 8 }}
     spec:
-      template:
-        metadata:
-          labels:
-            app.kubernetes.io/name: configarr
-            {{- include "arr-stack.labels" . | nindent 12 }}
-        spec:
-          restartPolicy: Never
-          containers:
-            - name: configarr
-              image: ghcr.io/raydak-labs/configarr:latest
-              env:
-                - name: TZ
-                  value: {{ .Values.timezone | quote }}
-              volumeMounts:
-                - name: repos
-                  mountPath: /app/repos
-                - name: config
-                  mountPath: /app/config/config.yml
-                  subPath: config.yml
-                - name: secrets
-                  mountPath: /app/config/secrets.yml
-                  subPath: secrets_yml
-                - name: custom-formats
-                  mountPath: /config/custom_formats
-                  readOnly: true
-          volumes:
+      restartPolicy: Never
+      containers:
+        - name: configarr
+          image: ghcr.io/raydak-labs/configarr:latest
+          env:
+            - name: TZ
+              value: {{ .Values.timezone | quote }}
+          volumeMounts:
             - name: repos
-              hostPath:
-                path: {{ .Values.configsRoot }}/configarr
-                type: DirectoryOrCreate
+              mountPath: /app/repos
             - name: config
-              configMap:
-                name: configarr-config
+              mountPath: /app/config/config.yml
+              subPath: config.yml
             - name: secrets
-              secret:
-                secretName: configarr-secrets
+              mountPath: /app/config/secrets.yml
+              subPath: secrets_yml
             - name: custom-formats
-              configMap:
-                name: configarr-custom-formats
+              mountPath: /config/custom_formats
+              readOnly: true
+      volumes:
+        - name: repos
+          hostPath:
+            path: {{ .Values.configsRoot }}/configarr
+            type: DirectoryOrCreate
+        - name: config
+          configMap:
+            name: configarr-config
+        - name: secrets
+          secret:
+            secretName: configarr-secrets
+        - name: custom-formats
+          configMap:
+            name: configarr-custom-formats
 {{- end }}

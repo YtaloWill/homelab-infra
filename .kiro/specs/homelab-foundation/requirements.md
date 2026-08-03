@@ -194,40 +194,47 @@ samba share by an Ansible playbook, so nothing is lost and nothing is wiped.
 ## Requirement 9 — Configarr / TRaSH-Guides PT-BR quality-profile sync
 
 **User Story:** As the operator, I want sonarr/radarr's quality profiles and
-custom formats kept in sync with the PT-BR TRaSH-Guides fork automatically,
-so scoring stays current without manually re-clicking through each app's UI.
+custom formats kept in sync with the PT-BR TRaSH-Guides fork, seeded
+automatically when first deployed and refreshed whenever I trigger it.
 
 ### Acceptance Criteria
 
 9.1. WHEN `configarr.enabled` is true (default for this homelab, gated
      independently like `gluetun.enabled`) THEN the Helm chart SHALL run a
-     `batch/v1` `CronJob` (`configarr-sync`) in the `arr` namespace on the
-     schedule declared in `values.yaml`, using the
-     `ghcr.io/raydak-labs/configarr` image.
+     one-shot `batch/v1` `Job` named `configarr-sync-<syncTrigger>` in the
+     `arr` namespace, using the `ghcr.io/raydak-labs/configarr` image.
 9.2. WHEN `configarr.enabled` is false THEN the rendered release SHALL
-     contain no Configarr objects (Secret, ConfigMaps, CronJob) at all.
-9.3. WHEN the sync job runs THEN it SHALL talk to the existing `sonarr` and
+     contain no Configarr objects (Secret, ConfigMaps, Job) at all.
+9.3. WHEN the sync Job's name (driven by `configarr.syncTrigger`) is new to
+     the release THEN Helm SHALL create and run it as part of the normal
+     `helm upgrade --install` — this is what seeds the first deployment (or
+     first `configarr.enabled: true`) automatically.
+9.4. WHEN `configarr.syncTrigger` is unchanged from the currently-deployed
+     value THEN `helm upgrade --install` SHALL leave the existing sync Job
+     as-is.
+9.5. WHEN the operator wants a resync THEN they SHALL bump
+     `configarr_sync_trigger` (Ansible inventory var → Helm value
+     `configarr.syncTrigger`) to a new value and re-apply, giving Helm a
+     fresh Job name to create.
+9.6. WHEN the sync Job runs THEN it SHALL talk to the existing `sonarr` and
      `radarr` in-namespace Services (`http://sonarr:8989`,
-     `http://radarr:7878`) — no new networking, Ingress, or LoadBalancer
-     SHALL be added for it.
-9.4. WHEN Configarr needs API credentials THEN they SHALL flow Vault
+     `http://radarr:7878`).
+9.7. WHEN Configarr needs API credentials THEN they SHALL flow Vault
      (`vault_configarr_environment`) → Ansible-rendered values file →
-     Kubernetes Secret, the same pattern as gluetun (Requirement 4.7); never
-     hardcoded in chart or repo.
-9.5. WHEN the config source is vendored THEN `kubernetes/charts/arr-stack/files/configarr/`
+     Kubernetes Secret, the same pattern as gluetun (Requirement 4.7).
+9.8. WHEN the config source is vendored THEN `kubernetes/charts/arr-stack/files/configarr/`
      SHALL hold a config.yml merged from trash-guides-ptbr's
      `config-DUBLADO-SEM-ANIMES.yaml` and `config-LEGENDADO-SEM-ANIMES.yaml`
      (no HDR-ON, no anime split — the fleet runs one sonarr/radarr instance
      each), producing two coexisting quality profiles, `HD (Dublado)` listed
      first and `HD (Legendado)` second, plus the matching
-     `custom-formats/*.json` files — SHALL NOT be fetched live from GitHub on
-     every CronJob run.
-9.6. WHEN the vendored config needs refreshing THEN it SHALL be regenerated
+     `custom-formats/*.json` files.
+9.9. WHEN the vendored config needs refreshing THEN it SHALL be regenerated
      by running `kubernetes/charts/arr-stack/scripts/update-configarr.sh`
-     (git clone + `yq` merge) — never hand-edited directly.
-9.7. WHEN Configarr needs a writable cache directory THEN it SHALL use a
-     hostPath volume under `/mnt/samba/configs/arr/configarr`, consistent
-     with every other app's config-storage convention (Requirement 4.3).
+     (git clone + `yq` merge).
+9.10. WHEN Configarr needs a writable cache directory THEN it SHALL use a
+      hostPath volume under `/mnt/samba/configs/arr/configarr`, consistent
+      with every other app's config-storage convention (Requirement 4.3).
 
 ## Non-Goals (this phase)
 
