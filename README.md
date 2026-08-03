@@ -53,14 +53,13 @@ samba share; container rootfs is disposable.
 Order matters; details in [tasks.md Phase 4](.kiro/specs/homelab-foundation/tasks.md).
 
 ```sh
+# on the PVE host: bind-mount sources must exist before container create
+mkdir -p /mnt/samba /mnt/pve/hdd-500/nas
+
 cd tofu
 tofu init
-# bring the existing containers under management — never recreate them
-tofu import proxmox_virtual_environment_container.jellyfin <node>/100
-tofu import proxmox_virtual_environment_container.arr      <node>/101
-tofu import proxmox_virtual_environment_container.samba    <node>/150
-tofu plan   # gate: ZERO destroy/replace on 100/101/150
-tofu apply  # creates PCT 104, adds mounts + /dev/net/tun
+tofu plan   # review the fresh PCT 100/101/104/150 this will create
+tofu apply  # creates the fleet per this spec
 
 cd ../ansible
 ansible-galaxy collection install -r requirements.yml

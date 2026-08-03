@@ -228,5 +228,7 @@ requirements → design → tasks → code, all under `.kiro/`.
 - **Layout**: `tofu/` (one file per container), `ansible/` (roles/playbooks),
   `kubernetes/charts/arr-stack/` (helm chart for the arr stack on k3s in
   PCT 101). Live rollout runbook: spec tasks.md Phase 4 + README.
-- **Never** run `tofu destroy` or unguarded applies against PCT 100/101/150 —
-  they are imported, hold real data, and carry `prevent_destroy`.
+- PCT 100/101/150 are created fresh via `tofu apply` per the spec (design
+  decision 4) and `prevent_destroy` guards them from there on — treat
+  `tofu destroy` or any unguarded apply against them as a per-instance
+  approval ask (rule 4): they hold real data.
