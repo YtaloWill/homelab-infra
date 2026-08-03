@@ -139,21 +139,23 @@ how to *act*, not which tool to reach for.
 
 ## Documentation hygiene
 
-25. **WIP notes, plans, analyses go in `docs/wip/`** (or the repo equivalent).
+25. **Avoid negative ontologies on executions and/or explanations.**
+
+26. **WIP notes, plans, analyses go in `docs/wip/`** (or the repo equivalent).
     Not `/tmp`. Not `docs/analysis/`. Not `docs/plan/`. Tracked, indexed,
     findable.
 
-26. **Validate docs builds locally before pushing doc changes.** Strict-mode
+27. **Validate docs builds locally before pushing doc changes.** Strict-mode
     doc generators (mkdocs strict, etc.) catch unresolved cross-references
     that pre-commit hooks miss. After any rename in `docs/`, grep for stale
     referrers first.
 
-27. **Code without comments by default.** Add a comment only when WHY is
+28. **Code without comments by default.** Add a comment only when WHY is
     non-obvious: a hidden constraint, a subtle invariant, a workaround for a
     specific bug. Don't explain WHAT — names do that. Don't reference the
     current PR or "added for X flow" — that rots.
 
-28. **Don't tolerate doc-vs-code divergence.** If a spec says one thing and
+29. **Don't tolerate doc-vs-code divergence.** If a spec says one thing and
     code does another, one of them is wrong. Identify which, fix it, don't
     paper over with prose.
 
@@ -161,21 +163,21 @@ how to *act*, not which tool to reach for.
 
 ## Safety, secrets, dependencies
 
-29. **Never commit secrets.** `.env`, credentials, tokens, API keys — never
+30. **Never commit secrets.** `.env`, credentials, tokens, API keys — never
     in git, never in test fixtures, never in commit messages. If a secret
     ever lands in a commit, treat it as compromised and rotate immediately.
 
-30. **Treat dependency bumps as design changes.** New transitive deps, major
+31. **Treat dependency bumps as design changes.** New transitive deps, major
     version bumps, lock-file churn — all need a reason stated in the commit
     body. Don't auto-accept Dependabot-style updates without reading what
     moved.
 
-31. **Rollback procedure exists before risky changes.** Before a migration,
+32. **Rollback procedure exists before risky changes.** Before a migration,
     a deploy, a config change to shared infra: how do I undo this in under
     5 minutes if it goes wrong? If the answer is "we can't", that's the
     first thing to fix.
 
-32. **Resource and cost awareness.** GPU time, paid API quotas, CI minutes,
+33. **Resource and cost awareness.** GPU time, paid API quotas, CI minutes,
     storage — these have budgets. Choose the cheapest validation that
     actually answers the question. Flag when an approach implies a step
     change in cost.
@@ -184,13 +186,13 @@ how to *act*, not which tool to reach for.
 
 ## Big-bets discipline
 
-33. **RFCs / ADRs for significant decisions, not silent PRs.** Architecture
+34. **RFCs / ADRs for significant decisions, not silent PRs.** Architecture
     choices, framework adoptions, schema changes, breaking API moves — write
     the decision down with alternatives considered and trade-offs. Future
     you (and future agents reading the repo) need the reasoning, not just
     the result.
 
-34. **Real bug → repro before fix.** A bug found in production gets a
+35. **Real bug → repro before fix.** A bug found in production gets a
     failing test (or matrix row, or fixture) that reproduces it *before*
     the fix lands. The test is the regression guard for the next time.
 

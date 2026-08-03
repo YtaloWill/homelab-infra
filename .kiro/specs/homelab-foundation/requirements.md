@@ -191,6 +191,51 @@ samba share by an Ansible playbook, so nothing is lost and nothing is wiped.
 8.2. The current samba password documented in PLAN.md SHALL be treated as
      compromised (it is written down in plaintext) and SHOULD be rotated.
 
+## Requirement 9 — Configarr / TRaSH-Guides PT-BR quality-profile sync
+
+**User Story:** As the operator, I want sonarr/radarr's quality profiles and
+custom formats kept in sync with the PT-BR TRaSH-Guides fork, seeded
+automatically when first deployed and refreshed whenever I trigger it.
+
+### Acceptance Criteria
+
+9.1. WHEN `configarr.enabled` is true (default for this homelab, gated
+     independently like `gluetun.enabled`) THEN the Helm chart SHALL run a
+     one-shot `batch/v1` `Job` named `configarr-sync-<syncTrigger>` in the
+     `arr` namespace, using the `ghcr.io/raydak-labs/configarr` image.
+9.2. WHEN `configarr.enabled` is false THEN the rendered release SHALL
+     contain no Configarr objects (Secret, ConfigMaps, Job) at all.
+9.3. WHEN the sync Job's name (driven by `configarr.syncTrigger`) is new to
+     the release THEN Helm SHALL create and run it as part of the normal
+     `helm upgrade --install` — this is what seeds the first deployment (or
+     first `configarr.enabled: true`) automatically.
+9.4. WHEN `configarr.syncTrigger` is unchanged from the currently-deployed
+     value THEN `helm upgrade --install` SHALL leave the existing sync Job
+     as-is.
+9.5. WHEN the operator wants a resync THEN they SHALL bump
+     `configarr_sync_trigger` (Ansible inventory var → Helm value
+     `configarr.syncTrigger`) to a new value and re-apply, giving Helm a
+     fresh Job name to create.
+9.6. WHEN the sync Job runs THEN it SHALL talk to the existing `sonarr` and
+     `radarr` in-namespace Services (`http://sonarr:8989`,
+     `http://radarr:7878`).
+9.7. WHEN Configarr needs API credentials THEN they SHALL flow Vault
+     (`vault_configarr_environment`) → Ansible-rendered values file →
+     Kubernetes Secret, the same pattern as gluetun (Requirement 4.7).
+9.8. WHEN the config source is vendored THEN `kubernetes/charts/arr-stack/files/configarr/`
+     SHALL hold a config.yml merged from trash-guides-ptbr's
+     `config-DUBLADO-SEM-ANIMES.yaml` and `config-LEGENDADO-SEM-ANIMES.yaml`
+     (no HDR-ON, no anime split — the fleet runs one sonarr/radarr instance
+     each), producing two coexisting quality profiles, `HD (Dublado)` listed
+     first and `HD (Legendado)` second, plus the matching
+     `custom-formats/*.json` files.
+9.9. WHEN the vendored config needs refreshing THEN it SHALL be regenerated
+     by running `kubernetes/charts/arr-stack/scripts/update-configarr.sh`
+     (git clone + `yq` merge).
+9.10. WHEN Configarr needs a writable cache directory THEN it SHALL use a
+      hostPath volume under `/mnt/samba/configs/arr/configarr`, consistent
+      with every other app's config-storage convention (Requirement 4.3).
+
 ## Non-Goals (this phase)
 
 - **Backups** — explicitly out of scope per PLAN.md.
@@ -199,3 +244,6 @@ samba share by an Ansible playbook, so nothing is lost and nothing is wiped.
 - **Privileged containers** — forbidden, not just deferred.
 - **hdd-80** — remains unassigned.
 - **Real TLS certificates / internal CA** — self-signed default cert only.
+- **Dedicated anime sonarr/radarr instances** — Configarr syncs the
+  SEM-ANIMES profile variant against the existing single sonarr/radarr;
+  standing up separate anime instances is a future call, not this change.

@@ -3,8 +3,10 @@ name: arr-stack
 description: >-
   Homelab media automation stack (prowlarr, qbittorrent, flaresolverr, radarr,
   sonarr, bazarr, jellyseerr) with an optional, fully independent gluetun VPN
-  egress proxy. hostPath-backed configs on the samba share; exposed on the
-  node IP via k3s servicelb at the legacy compose ports.
+  egress proxy and an optional Configarr one-shot Job syncing PT-BR
+  TRaSH-Guides quality profiles into sonarr/radarr, triggered on demand.
+  hostPath-backed configs on the samba share; exposed on the node IP via k3s
+  servicelb at the legacy compose ports.
 type: application
-version: 0.1.0
+version: 0.3.0
 appVersion: "1.0"

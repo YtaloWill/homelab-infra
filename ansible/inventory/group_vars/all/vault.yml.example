@@ -18,3 +18,9 @@ vault_gluetun_environment: {}
 #  WIREGUARD_PUBLIC_KEY: yyyyyyyy
 #  VPN_ENDPOINT_IP: 1.2.3.4
 #  VPN_ENDPOINT_PORT: "51820"
+
+# Only needed when configarr_enabled: true (default). Get these from each
+# app's web UI: Settings -> General -> Security -> API Key.
+vault_configarr_environment:
+  SONARR_API_KEY: CHANGE_ME
+  RADARR_API_KEY: CHANGE_ME

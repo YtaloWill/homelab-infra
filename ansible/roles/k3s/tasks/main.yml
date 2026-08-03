@@ -1,7 +1,7 @@
 ---
 - name: Install k3s + helm (Alpine community repo)
   community.general.apk:
-    name: k3s,helm
+    name: k3s,helm,tzdata
     state: present
     update_cache: true
 

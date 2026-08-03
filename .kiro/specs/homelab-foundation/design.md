@@ -26,6 +26,7 @@ flowchart TB
         subgraph P101[PCT 101 arr - Alpine + k3s]
             AR[helm release arr-stack:<br/>prowlarr qbittorrent flaresolverr<br/>radarr sonarr bazarr jellyseerr]
             GL[gluetun - optional Deployment<br/>HTTP proxy :8888]
+            CF[configarr-sync - optional one-shot Job<br/>PT-BR TRaSH-Guides sync, manually triggered]
         end
         subgraph P150[PCT 150 samba - Alpine]
             SMB[samba share nas]
@@ -181,7 +182,10 @@ footprint the old containers happened to grow into.
    overlayfs snapshotter misbehaves, set `snapshotter: native` in
    `/etc/rancher/k3s/config.yaml`). k3s server overhead (~700 MB) plus seven
    app pods was tight against the original 4 GB default — `arr_memory`
-   defaults to 6144 now.
+   defaults to 6144 now. `tzdata` is installed alongside `k3s`/`helm`:
+   Alpine doesn't ship IANA zoneinfo by default, and k3s's Go runtime reads
+   `/usr/share/zoneinfo` to resolve IANA zone names used anywhere in the
+   cluster.
 
 9. **Bind mounts require a root@pam ticket, not an API token.** Proxmox only
    allows `mp` host-path entries for root@pam. Its permission check compares
@@ -224,6 +228,37 @@ footprint the old containers happened to grow into.
     single-node k3s — no cross-node clustering, consistent with the
     single-node-per-stack Non-Goal.
 
+11. **Configarr syncs PT-BR TRaSH-Guides quality profiles into sonarr/radarr
+    as a one-shot Job, triggered on demand.** Mirrors gluetun's independence
+    pattern: own objects gated by `configarr.enabled`, nothing else
+    references it.
+    - **Job named `configarr-sync-{{ .Values.configarr.syncTrigger }}`.**
+      `configarr.syncTrigger` (Ansible: `configarr_sync_trigger`, a plain
+      inventory var) is part of the Job's name. The first time
+      `configarr.enabled` goes true, `configarr-sync-1` is a name Helm
+      creates fresh as part of that `helm upgrade --install`, which is what
+      seeds the profiles on first rollout. A resync happens by bumping the
+      trigger to a new value and re-applying, giving Helm a new object name
+      to create; an unchanged trigger keeps the existing Job as-is across
+      routine `helm upgrade --install` runs. `backoffLimit: 2` bounds
+      retries against sonarr/radarr's API, and `ttlSecondsAfterFinished:
+      86400` cleans up completed Job objects from past triggers.
+    - **Config vendored under `kubernetes/charts/arr-stack/files/configarr/`.**
+      `scripts/update-configarr.sh` clones `trash-guides-ptbr` and merges
+      `config-DUBLADO-SEM-ANIMES.yaml` + `config-LEGENDADO-SEM-ANIMES.yaml`
+      into one `config.yml`, loaded at render time via Helm's
+      `.Files.Get`/`.Files.Glob` into two ConfigMaps alongside the
+      `custom-formats/*.json` files — consistent with the arr-stack chart's
+      one-`values.yaml`-source-of-truth posture.
+    - **DUBLADO and LEGENDADO merged into `HD (Dublado)` and
+      `HD (Legendado)` as two coexisting quality profiles.**
+      `update-configarr.sh` renames each source variant's `HD` profile (and
+      every `custom_formats[].assign_scores_to[]` reference to it) before
+      concatenating their `custom_formats`/`quality_profiles` arrays,
+      Dublado first, so both profiles land in sonarr/radarr side by side.
+      SEM-ANIMES matches the fleet's single sonarr/radarr instance
+      (Non-Goals).
+
 ## Components
 
 ### OpenTofu (`tofu/`)
@@ -247,7 +282,7 @@ Roles:
 | `samba_server` | PCT 150  | samba pkg, `smb.conf` ([nas] share, SMB3, sambauser), share tree (`media/*`, `configs/*`), passdb user from Vault |
 | `k3s`          | PCT 100, PCT 101 | apk k3s + helm, `/dev/kmsg` shim, `/etc/rancher/k3s/config.yaml` (disable traefik/metrics-server, userns kubelet/kube-proxy args), service up — reused unmodified on both, two independent single-node clusters |
 | `jellyfin`     | PCT 100  | copies `kubernetes/charts/jellyfin` to the CT, renders values (paths on share), `helm upgrade --install` |
-| `arr_stack`    | PCT 101  | copies `kubernetes/charts/arr-stack` to the CT, renders values (configs on share, `gluetun.enabled`, Vault creds), `helm upgrade --install` |
+| `arr_stack`    | PCT 101  | copies `kubernetes/charts/arr-stack` to the CT, renders values (configs on share, `gluetun.enabled`, `configarr.enabled`, Vault creds), `helm upgrade --install` |
 | `proxy`        | PCT 104  | dnsmasq (`address=/local/104`, upstream forwarders), Traefik binary + OpenRC service, static config (web→websecure redirect, file provider), dynamic routers/services rendered from `proxy_services` list |
 
 Playbooks:
@@ -283,7 +318,7 @@ Playbooks:
 media/{downloads,movies,shows,test_movies,test_shows}
 configs/
   jellyfin/{config,data}
-  arr/{prowlarr,qbittorrent,radarr,sonarr,bazarr,jellyseerr}
+  arr/{prowlarr,qbittorrent,radarr,sonarr,bazarr,jellyseerr,configarr}
 ```
 
 ## Error handling & safety
@@ -300,6 +335,10 @@ configs/
   container is down.
 - gluetun down/disabled affects nothing else by construction (own Deployment,
   no coupling); only an app explicitly pointed at the proxy loses egress.
+- configarr's own one-shot Job reads/writes only against sonarr/radarr's own
+  API; a failed sync leaves quality profiles at their last-synced state.
+  `backoffLimit: 2` bounds retries; `ttlSecondsAfterFinished` cleans up
+  completed/failed Job objects automatically.
 - Ordering: samba must be configured (storage.yml) before jellyfin/arr configs
   on the share are usable; and the legacy compose stack must be stopped
   (migrate-configs.yml) before k3s servicelb can bind the same ports — the
@@ -311,7 +350,8 @@ configs/
 
 - **Static:** `tofu fmt -check`, `tofu validate`; `ansible-lint` /
   `ansible-playbook --syntax-check` for every playbook; `helm lint` +
-  `helm template` for both charts (arr-stack: both gluetun.enabled states).
+  `helm template` for both charts (arr-stack: both `gluetun.enabled` and
+  both `configarr.enabled` states).
 - **Plan review:** `tofu plan` should show 100/101/150 being created fresh
   (expected, since the old containers are deleted first) with no unexpected
   diffs against this spec's declared config.
