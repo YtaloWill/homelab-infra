@@ -13,6 +13,8 @@ spec:
     - ReadWriteOnce
   persistentVolumeReclaimPolicy: Retain
   storageClassName: manual
+  # databases_export_path is already the dedicated hdd-80-backed directory
+  # (tofu/databases.tf's mount_point) — no extra nesting needed here.
   hostPath:
-    path: {{ databases_export_path }}/postgres
-    type: DirectoryOrCreate
+    path: {{ databases_export_path }}
+    type: Directory

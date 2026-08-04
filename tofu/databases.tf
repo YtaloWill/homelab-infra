@@ -16,8 +16,19 @@ resource "null_resource" "hdd80_postgres_dir" {
     private_key = file(pathexpand(var.pve_ssh_private_key_file))
   }
 
+  # world-writable: PCT 151 is unprivileged, so its mapped root (and
+  # CloudNativePG's own postgres-uid process inside the pod) is not host
+  # uid 0 — a plain bind mount (unlike the CIFS mount's uid=/gid= options)
+  # gets no automatic ownership translation, so kubelet's hostPath mkdir
+  # and postgres's own initdb both need to write here as whatever host uid
+  # they end up mapped to. Same "sidestep needing to know the exact
+  # in-container id" reasoning as the GPU device_passthrough mode = 0666
+  # in jellyfin.tf.
   provisioner "remote-exec" {
-    inline = ["mkdir -p ${var.hdd80_host_path}"]
+    inline = [
+      "mkdir -p ${var.hdd80_host_path}",
+      "chmod 0777 ${var.hdd80_host_path}",
+    ]
   }
 }
 
