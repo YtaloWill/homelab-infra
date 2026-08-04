@@ -78,6 +78,18 @@ variable "samba_export_path" {
   default     = "/srv/nas"
 }
 
+variable "hdd80_host_path" {
+  description = "Host path of the databases container's disk — a subdirectory of hdd-80, not its bare root, same reasoning as hdd500_host_path"
+  type        = string
+  default     = "/mnt/pve/hdd-80/postgres"
+}
+
+variable "databases_export_path" {
+  description = "Path inside PCT 151 where hdd-80 is bind-mounted"
+  type        = string
+  default     = "/srv/data"
+}
+
 variable "host_cifs_mount" {
   description = "PVE host mountpoint of //samba/nas, bind-mounted into consumer CTs (see ansible/playbooks/storage.yml)"
   type        = string
@@ -201,9 +213,66 @@ variable "proxy_disk_gb" {
   default = 2
 }
 
+variable "bookorbit_ip" {
+  type    = string
+  default = "192.168.15.105/24"
+}
+
+variable "bookorbit_cores" {
+  type    = number
+  default = 2
+}
+
+# k3s server overhead (~700 MB) + BookOrbit's own Node heap ceiling
+# (NODE_MAX_OLD_SPACE_SIZE defaults to 2048 MB) — lighter than jellyfin_memory
+# since there's no local Postgres or transcoding.
+variable "bookorbit_memory" {
+  type    = number
+  default = 2560
+}
+
+variable "bookorbit_swap" {
+  type    = number
+  default = 512
+}
+
+variable "bookorbit_disk_gb" {
+  type    = number
+  default = 10
+}
+
+variable "databases_ip" {
+  type    = string
+  default = "192.168.15.151/24"
+}
+
+variable "databases_cores" {
+  type    = number
+  default = 2
+}
+
+variable "databases_memory" {
+  type    = number
+  default = 2048
+}
+
+variable "databases_swap" {
+  type    = number
+  default = 512
+}
+
+# k3s + CNPG operator + Postgres image layers only — the real data lives on
+# the hdd-80 bind mount, not the rootfs.
+variable "databases_disk_gb" {
+  type    = number
+  default = 8
+}
+
 locals {
-  vmid_jellyfin = 100
-  vmid_arr      = 101
-  vmid_proxy    = 104
-  vmid_samba    = 150
+  vmid_jellyfin  = 100
+  vmid_arr       = 101
+  vmid_bookorbit = 102
+  vmid_proxy     = 104
+  vmid_samba     = 150
+  vmid_databases = 151
 }
