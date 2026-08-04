@@ -31,17 +31,28 @@ flowchart TB
         subgraph P150[PCT 150 samba - Alpine]
             SMB[samba share nas]
         end
+        subgraph P102[PCT 102 bookorbit - Alpine + k3s]
+            BO[helm release bookorbit :3000]
+        end
+        subgraph P151[PCT 151 databases - Alpine + k3s]
+            PG[CloudNativePG cluster<br/>bookorbit-postgres :5432]
+        end
         HM["/mnt/samba (host CIFS mount)"]
         HDD["hdd-500 dir storage<br/>/mnt/pve/hdd-500/nas"]
+        HDD80["hdd-80 dir storage<br/>/mnt/pve/hdd-80/postgres"]
     end
     C -->|DNS query| DNS
     C -->|https://x.local| TR
     TR --> JF
     TR --> AR
+    TR --> BO
     HDD -->|bind mount| SMB
     SMB -->|CIFS //150/nas| HM
     HM -->|bind mount mp0| JF
     HM -->|bind mount mp0| AR
+    HM -->|bind mount mp0| BO
+    HDD80 -->|bind mount mp0| PG
+    BO -->|LAN :5432| PG
 ```
 
 ## Inventory of managed resources
@@ -52,6 +63,8 @@ flowchart TB
 | 101 | arr      | Alpine    | 192.168.15.103/24  | 4   | 6144/512    | 12 GB (k3s + images) | bind: host `/mnt/samba` → `/mnt/samba`; `/dev/net/tun` passthrough |
 | 150 | samba    | Alpine    | 192.168.15.150/24  | 4   | 2048/512    | 4 GB               | bind: host `/mnt/pve/hdd-500/nas` → `/srv/nas` |
 | 104 | proxy    | Alpine    | 192.168.15.104/24  | 1   | 512/512     | 2 GB               | none (deliberately NAS-independent) |
+| 102 | bookorbit | Alpine + k3s | 192.168.15.105/24 | 2 | 2560/512  | 10 GB              | bind: host `/mnt/samba` → `/mnt/samba` |
+| 151 | databases | Alpine + k3s | 192.168.15.151/24 | 2 | 2048/512  | 8 GB               | bind: host `/mnt/pve/hdd-80/postgres` → `/srv/data` |
 
 All unprivileged. Gateway `192.168.15.1`, bridge `vmbr0` (variables). These
 sizes are the target for the from-scratch rebuild (containers 100/101/150
@@ -259,6 +272,56 @@ footprint the old containers happened to grow into.
       SEM-ANIMES matches the fleet's single sonarr/radarr instance
       (Non-Goals).
 
+12. **Postgres/pgvector (BookOrbit) doesn't fit the CIFS-config-on-share
+    pattern, so it gets its own hdd-80-backed container instead.** Every
+    other service's config lives on the samba share (Key decision 2), with
+    `nobrl` accepted as a tolerable trade-off for SQLite specifically.
+    Postgres is far less tolerant of network-filesystem locking semantics
+    than SQLite — running its data directory over CIFS risks real
+    corruption, not just a performance hit. It's also moot for this fleet:
+    **pgvector has no Alpine package**, checked on both `v3.21` (stable)
+    and `edge` — zero results either way — so a native `apk add
+    postgresql` + pgvector anywhere in this fleet isn't possible without
+    compiling from source. Resolution: a new `databases` container (PCT
+    151) runs Postgres via CloudNativePG (Key decision 13), with data
+    backed by the previously-unassigned `hdd-80` disk, bind-mounted
+    directly into the container exactly like `hdd-500` is bind-mounted
+    into samba (PCT 150) — a plain Proxmox directory-storage bind, not a
+    network filesystem, so none of the CIFS locking risk applies.
+    BookOrbit's own container (PCT 102) reaches it purely over the LAN
+    (`192.168.15.151:5432`), the same way it would reach any external
+    database per BookOrbit's own docs. `databases` is vmid 151 — the
+    operator's convention reserves `150+` for shared/infrastructure
+    containers (samba is 150) versus `100+` for per-app containers.
+
+13. **CloudNativePG, pinned to v1.29.2, not the latest release.** This
+    fleet's k3s (Alpine `v3.21`'s `k3s` package, 1.31.3) is older than what
+    CloudNativePG's currently-supported releases target — 1.30.x requires
+    Kubernetes 1.34+, and even 1.29.x lists 1.31 only as "tested, not
+    supported" (1.33+ is its supported floor). v1.29.2 is the newest
+    release that still tests against 1.31, so it's the one installed
+    (`kubectl apply --server-side -f
+    .../release-1.29/releases/cnpg-1.29.2.yaml`) rather than latest.
+    CloudNativePG is installed as an operator (CRDs + controller in the
+    `cnpg-system` namespace), not a Helm chart — the actual Postgres
+    instance is a `Cluster` custom resource, not a `helm upgrade
+    --install` release, unlike every other workload in this fleet. The
+    `Cluster` uses `imageName:
+    ghcr.io/cloudnative-pg/postgresql:17.6-standard-trixie` — CloudNativePG's
+    own "standard" operand image, which bundles pgvector (and PGAudit,
+    JIT) — no custom image build needed. Storage is a
+    statically-provisioned `PersistentVolume` (hostPath into the hdd-80
+    bind mount, `storageClassName: manual`) since no dynamic provisioner
+    exists anywhere in this fleet; `bootstrap.initdb` creates the
+    `bookorbit` database/owner directly from a Vault-sourced Secret, and
+    `postInitApplicationSQL` runs `CREATE EXTENSION IF NOT EXISTS vector;`
+    on first bootstrap. A hand-written `LoadBalancer` Service (selecting
+    CloudNativePG's own primary-instance pod labels,
+    `cnpg.io/cluster`/`cnpg.io/instanceRole`) exposes the cluster on PCT
+    151's node IP for BookOrbit's separate k3s cluster to reach — CNPG's
+    own auto-created Service is ClusterIP (ordinary Postgres client, not a
+    web UI, so `Requirement 6`'s Traefik routing doesn't apply here).
+
 ## Components
 
 ### OpenTofu (`tofu/`)
@@ -283,6 +346,8 @@ Roles:
 | `k3s`          | PCT 100, PCT 101 | apk k3s + helm, `/dev/kmsg` shim, `/etc/rancher/k3s/config.yaml` (disable traefik/metrics-server, userns kubelet/kube-proxy args), service up — reused unmodified on both, two independent single-node clusters |
 | `jellyfin`     | PCT 100  | copies `kubernetes/charts/jellyfin` to the CT, renders values (paths on share), `helm upgrade --install` |
 | `arr_stack`    | PCT 101  | copies `kubernetes/charts/arr-stack` to the CT, renders values (configs on share, `gluetun.enabled`, `configarr.enabled`, Vault creds), `helm upgrade --install` |
+| `bookorbit`    | PCT 102  | copies `kubernetes/charts/bookorbit` to the CT, renders values (paths on share, database host, Vault creds), `helm upgrade --install` |
+| `databases`    | PCT 151  | `kubectl apply`s the CloudNativePG operator manifest, a static hdd-80-backed `PersistentVolume`, and the `bookorbit-postgres` `Cluster`/Secret/Service — no Helm involved |
 | `proxy`        | PCT 104  | dnsmasq (`address=/local/104`, upstream forwarders), Traefik binary + OpenRC service, static config (web→websecure redirect, file provider), dynamic routers/services rendered from `proxy_services` list |
 
 Playbooks:
@@ -296,12 +361,17 @@ Playbooks:
 - `site.yml` — imports storage.yml then services.yml.
 - `migrate-configs.yml` — one-time copy of legacy configs to the share
   (stop service → copy iff destination empty → start; never deletes sources).
+- `recover-hdd80-mount.yml` — re-locates hdd-80 by filesystem UUID after a
+  disconnect/reconnect and reboots the databases container, mirroring
+  `recover-nas-mount.yml`'s pattern for hdd-500 (shorter cascade — no CIFS
+  layer between hdd-80 and its one consumer).
 
 ### Traefik routing table (rendered from `proxy_services` var)
 
 | Host                 | Backend                       |
 |----------------------|-------------------------------|
 | jellyfin.local       | http://192.168.15.102:8096    |
+| bookorbit.local      | http://192.168.15.105:3000    |
 | prowlarr.local       | http://192.168.15.103:9696    |
 | qbittorrent.local    | http://192.168.15.103:8080    |
 | radarr.local         | http://192.168.15.103:7878    |
@@ -316,10 +386,15 @@ Playbooks:
 
 ```
 media/{downloads,movies,shows,test_movies,test_shows}
+media/books/{Ebooks,Audiobooks,Comics}
 configs/
   jellyfin/{config,data}
+  bookorbit/
   arr/{prowlarr,qbittorrent,radarr,sonarr,bazarr,jellyseerr,configarr}
 ```
+
+Postgres's own data (hdd-80-backed, PCT 151) is **not** part of this share
+— see Key decision 12.
 
 ## Error handling & safety
 
@@ -333,6 +408,12 @@ configs/
   image backing it is gone.
 - Host CIFS mount uses `nofail,_netdev` so the PVE host boots when the NAS
   container is down.
+- hdd-80 (databases container) is a direct Proxmox bind mount, not CIFS —
+  no network-filesystem failure mode to plan around; reconnects are handled
+  by `recover-hdd80-mount.yml` (Key decision 12).
+- The `postgres-data-pv` `PersistentVolume` uses `persistentVolumeReclaimPolicy:
+  Retain` — deleting the `bookorbit-postgres` Cluster or its PVC never
+  deletes the underlying hdd-80 data.
 - gluetun down/disabled affects nothing else by construction (own Deployment,
   no coupling); only an app explicitly pointed at the proxy loses egress.
 - configarr's own one-shot Job reads/writes only against sonarr/radarr's own
@@ -350,8 +431,10 @@ configs/
 
 - **Static:** `tofu fmt -check`, `tofu validate`; `ansible-lint` /
   `ansible-playbook --syntax-check` for every playbook; `helm lint` +
-  `helm template` for both charts (arr-stack: both `gluetun.enabled` and
-  both `configarr.enabled` states).
+  `helm template` for all three charts (arr-stack: both `gluetun.enabled`
+  and both `configarr.enabled` states); `kubectl apply --dry-run=client -f`
+  the rendered CloudNativePG manifests (PV/Cluster/Service — no Helm chart
+  to lint for the databases role).
 - **Plan review:** `tofu plan` should show 100/101/150 being created fresh
   (expected, since the old containers are deleted first) with no unexpected
   diffs against this spec's declared config.
@@ -369,3 +452,8 @@ configs/
   - gluetun (when enabled): `curl -x http://192.168.15.103:8888 https://ifconfig.me`
     returns the VPN exit IP, while `curl https://ifconfig.me` from qbittorrent
     still returns the WAN IP unless its in-app proxy is set.
+  - `kubectl get pods -n cnpg-system` and `-n databases` Running;
+    `pg_isready -h 192.168.15.151 -p 5432` succeeds.
+  - `kubectl get pods -n bookorbit` Running; `dig +short bookorbit.local
+    @192.168.15.104` → `192.168.15.104`; `curl -kIs https://bookorbit.local`
+    → 200/302.

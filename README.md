@@ -2,8 +2,9 @@
 
 Single-node Proxmox homelab (Dell Latitude 7310, `https://192.168.15.101:8006`)
 as reproducible infrastructure-as-code: **OpenTofu** provisions the LXC fleet,
-**Ansible** configures it, and the arr media stack runs on **k3s** deployed
-from a repo-local **Helm** chart.
+**Ansible** configures it, and jellyfin/arr/bookorbit each run on their own
+**k3s** cluster deployed from a repo-local **Helm** chart. Postgres (backing
+BookOrbit) runs on a fourth k3s cluster via the **CloudNativePG** operator.
 
 Spec-driven repo: start at [.kiro/steering/](.kiro/steering/) for context and
 [.kiro/specs/homelab-foundation/](.kiro/specs/homelab-foundation/) for the
@@ -28,8 +29,10 @@ New-Item -ItemType SymbolicLink -Path CLAUDE.md -Target AGENTS.md  # Windows
 |-----|----------|-----------------|------|
 | 100 | jellyfin | 192.168.15.102  | Jellyfin (Alpine, k3s + Helm release `jellyfin`) |
 | 101 | arr      | 192.168.15.103  | k3s + Helm release `arr` (prowlarr, qbittorrent, flaresolverr, radarr, sonarr, bazarr, jellyseerr; optional gluetun) |
+| 102 | bookorbit | 192.168.15.105 | BookOrbit (Alpine, k3s + Helm release `bookorbit`) — ebook/audiobook library |
 | 104 | proxy    | 192.168.15.104  | dnsmasq + Traefik → `https://<service>.local` |
 | 150 | samba    | 192.168.15.150  | Samba NAS on hdd-500 (media + all service configs) |
+| 151 | databases | 192.168.15.151 | k3s + CloudNativePG cluster `bookorbit-postgres` on hdd-80 |
 
 All containers are unprivileged. Bulk data and stateful configs live on the
 samba share; container rootfs is disposable.
@@ -88,6 +91,28 @@ changes nothing else.
 Disabling: set the flag back to `false`, re-run site.yml, and unset the in-app
 proxy settings of anything that opted in.
 
+## Adding BookOrbit + databases
+
+Details in [tasks.md Phase 6](.kiro/specs/homelab-foundation/tasks.md).
+Postgres/pgvector runs in its own `databases` container (PCT 151, hdd-80)
+via the CloudNativePG operator, not on the samba share — see design
+decision 12.
+
+```sh
+cd tofu
+tofu apply  # creates PCT 102 (bookorbit) and 151 (databases); tofu itself
+            # creates hdd-80's bind-mount source directory via SSH first
+
+cd ../ansible
+ansible-playbook playbooks/bootstrap.yml
+ansible-playbook playbooks/storage.yml
+ansible-playbook playbooks/site.yml   # databases before bookorbit
+```
+
+Then open `https://bookorbit.local`, complete setup with
+`SETUP_BOOTSTRAP_TOKEN`, and add libraries pointing at `/books/Ebooks`,
+`/books/Audiobooks`, and `/books/Comics` (all "Folder as Book").
+
 ## Day-2
 
 ```sh
@@ -99,6 +124,7 @@ cd ansible && ansible-playbook playbooks/site.yml --check --diff
 
 # chart hygiene
 helm lint kubernetes/charts/arr-stack
+helm lint kubernetes/charts/bookorbit
 ```
 
 Smoke tests live in the spec's

@@ -143,3 +143,51 @@ must be migrated off each container **before** it's deleted, not after.
 
 - [ ] 5.1 Backup strategy (explicitly deferred by PLAN.md)
 - [ ] 5.2 Local CA for real TLS on `*.local`
+
+## Phase 6 — Add BookOrbit + databases
+
+### Code
+
+- [x] 6.1 `tofu/bookorbit.tf` — PCT 102, `/mnt/samba` bind mount,
+      prevent_destroy (_Requirements: 1.2, 1.3, 1.4, 2.3, 10.1_)
+- [x] 6.2 `tofu/databases.tf` — PCT 151, hdd-80 bind mount, prevent_destroy
+      (_Requirements: 1.2, 1.3, 1.4, 11.1_)
+- [x] 6.3 `kubernetes/charts/bookorbit` — Deployment + Service, hostPath
+      data/books volumes, Secret from rendered values (_Requirements:
+      10.1–10.3, 10.5_)
+- [x] 6.4 `bookorbit` role — copies the chart, renders values (paths on
+      share, database host, Vault creds), `helm upgrade --install`
+      (_Requirements: 10.1–10.5_)
+- [x] 6.5 `databases` role — CloudNativePG operator manifest, static
+      hdd-80-backed PV, `bookorbit-postgres` Cluster/Secret/Service, all via
+      `kubectl apply` (no Helm) (_Requirements: 11.1–11.5_)
+- [x] 6.6 samba/hosts/vault.yml.example/bootstrap.yml/storage.yml/
+      services.yml wiring; `recover-hdd80-mount.yml` (_Requirements: 3.2,
+      8.1, 11.6_)
+
+### Rollout (operator-driven, in order)
+
+- [x] 6.7 Get `hdd80_uuid` (`blkid` on the PVE host) and fill it into
+      `ansible/inventory/group_vars/all/main.yml`
+- [ ] 6.8 Set `vault_bookorbit_environment` in the vault
+- [ ] 6.9 `tofu apply` — creates PCT 102/151; existing
+      `prevent_destroy`-guarded containers are untouched. hdd-80's
+      bind-mount source directory no longer needs a manual pre-create step
+      (unlike `/mnt/samba`/hdd-500 in task 4.4a): `tofu/databases.tf`'s
+      `null_resource.hdd80_postgres_dir` creates it over SSH before the
+      container, using the same provider SSH fallback as `tofu/providers.tf`
+- [ ] 6.10 `ansible-playbook playbooks/bootstrap.yml`
+- [ ] 6.11 `ansible-playbook playbooks/storage.yml`
+- [ ] 6.12 `ansible-playbook playbooks/site.yml` — `databases` role runs
+      before `bookorbit` so the Postgres cluster exists before BookOrbit's
+      first boot needs it
+- [ ] 6.13 Smoke tests: `kubectl get pods -n cnpg-system` and `-n
+      databases` Running; `kubectl get pods -n bookorbit` Running;
+      `pg_isready -h 192.168.15.151 -p 5432`; `curl -kIs
+      https://bookorbit.local`; `dig bookorbit.local @192.168.15.104`
+- [ ] 6.14 Manual one-time BookOrbit setup (same nature as Jellyfin's own
+      first-run setup): open `https://bookorbit.local`, complete setup with
+      `SETUP_BOOTSTRAP_TOKEN`, add three libraries pointing at
+      `/books/Ebooks` (Folder as Book), `/books/Audiobooks` (Folder as
+      Book — required by BookOrbit for audiobooks), `/books/Comics`
+      (Folder as Book)

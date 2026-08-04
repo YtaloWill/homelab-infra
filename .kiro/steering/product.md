@@ -10,7 +10,9 @@ household's media stack, fully reproducible from this repository.
 | Jellyfin      | PCT 100          | Media streaming server                    |
 | arr stack     | PCT 101 (k3s + Helm) | prowlarr, qbittorrent, flaresolverr, radarr, sonarr, bazarr, jellyseerr |
 | gluetun       | PCT 101 (k3s, optional `gluetun.enabled`) | Independent VPN egress proxy (:8888); apps opt in individually |
+| BookOrbit     | PCT 102 (k3s + Helm) | Ebook/audiobook library server            |
 | Samba NAS     | PCT 150          | All bulk data (media) + service configs on hdd-500 |
+| databases     | PCT 151 (k3s + CloudNativePG) | Database tier, currently backing BookOrbit, on hdd-80 |
 | Traefik + dnsmasq | PCT 104      | `https://<service>.local` for the LAN     |
 
 ## Principles

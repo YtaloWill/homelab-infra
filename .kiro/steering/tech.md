@@ -10,13 +10,17 @@
   in-container configuration and the PVE-host CIFS mount. Vault for secrets.
 - **LXC guests**: Alpine, all four (jellyfin, arr, samba, proxy). Official
   template only, downloaded by tofu to `local` storage.
-- **Kubernetes**: two independent single-node k3s clusters (Alpine package,
-  bundled traefik/metrics-server disabled), one per app-hosting container —
-  PCT 100 runs jellyfin from the repo-local Helm chart
+- **Kubernetes**: four independent single-node k3s clusters (Alpine package,
+  1.31.3, bundled traefik/metrics-server disabled), one per app-hosting
+  container — PCT 100 runs jellyfin from the repo-local Helm chart
   `kubernetes/charts/jellyfin` (Alpine's own `jellyfin` apk package is
   edge-only — see design decision 10), PCT 101 runs the arr stack from
-  `kubernetes/charts/arr-stack`. No cross-node clustering. samba and proxy
-  run natively; Traefik as a static binary under OpenRC on PCT 104.
+  `kubernetes/charts/arr-stack`, PCT 102 runs BookOrbit from
+  `kubernetes/charts/bookorbit`, PCT 151 runs Postgres/pgvector via the
+  **CloudNativePG operator** (`kubectl apply`, not Helm — see design
+  decisions 12/13; pinned to v1.29.2 to match this fleet's k3s version). No
+  cross-node clustering. samba and proxy run natively; Traefik as a static
+  binary under OpenRC on PCT 104.
 
 ## Commands
 
@@ -33,9 +37,10 @@ ansible-playbook playbooks/site.yml --check --diff   # dry-run first
 ansible-playbook playbooks/site.yml
 
 # charts (from kubernetes/charts/)
-helm lint arr-stack && helm lint jellyfin
+helm lint arr-stack && helm lint jellyfin && helm lint bookorbit
 helm template arr-stack --set gluetun.enabled=true   # render check
 helm template jellyfin
+helm template bookorbit
 ```
 
 Playbook order for first rollout: `bootstrap.yml` → `storage.yml` →

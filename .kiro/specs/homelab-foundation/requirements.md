@@ -236,13 +236,74 @@ automatically when first deployed and refreshed whenever I trigger it.
       hostPath volume under `/mnt/samba/configs/arr/configarr`, consistent
       with every other app's config-storage convention (Requirement 4.3).
 
+## Requirement 10 — BookOrbit library server
+
+**User Story:** As the operator, I want an ebook/audiobook library
+(BookOrbit) running from the official `ghcr.io/bookorbit/bookorbit` image on
+k3s, deployed by a repo-local Helm chart via Ansible — the same pattern as
+Jellyfin/arr — so PCT 102 is fully reproducible from this repo, not a
+manual Docker Compose deploy.
+
+### Acceptance Criteria
+
+10.1. WHEN the bookorbit role runs THEN BookOrbit SHALL run as the official
+      `ghcr.io/bookorbit/bookorbit` image, deployed on a single-node k3s
+      server on the Alpine container via a repo-local Helm chart
+      (`kubernetes/charts/bookorbit`) — not Docker Compose.
+10.2. WHEN data locations are configured THEN BookOrbit's app data SHALL
+      live under `/mnt/samba/configs/bookorbit/`.
+10.3. WHEN the library is served THEN it SHALL read and write
+      `/mnt/samba/media/books/` (read-write, unlike Jellyfin's read-only
+      media mount — BookOrbit organizes files and writes metadata sidecars
+      back into the library), with `Ebooks/`, `Audiobooks/`, and `Comics/`
+      subfolders pre-created.
+10.4. WHEN BookOrbit needs its database THEN it SHALL connect to the
+      `databases` container's Postgres cluster over the LAN
+      (`192.168.15.151:5432`) — never through the CIFS share.
+10.5. WHEN BookOrbit needs secrets (`JWT_SECRET`, `SETUP_BOOTSTRAP_TOKEN`,
+      `POSTGRES_PASSWORD`) THEN they SHALL flow Vault
+      (`vault_bookorbit_environment`) → Ansible-rendered values file → a
+      Kubernetes Secret, never hardcoded in the chart or repo.
+
+## Requirement 11 — Databases container (Postgres/pgvector)
+
+**User Story:** As the operator, I want a dedicated database tier so
+services that need Postgres (starting with BookOrbit, which also needs
+pgvector) don't have to fit this fleet's CIFS-based config-storage
+convention, which Postgres doesn't tolerate.
+
+### Acceptance Criteria
+
+11.1. WHEN the databases container (PCT 151) is provisioned THEN the host
+      directory backing `hdd-80` SHALL be bind-mounted directly into it
+      (not via CIFS/samba) as its data root.
+11.2. WHEN Postgres is deployed THEN it SHALL run via the CloudNativePG
+      operator on a single-node k3s server on PCT 151, using a
+      `cloudnative-pg/postgresql` "standard" operand image (bundles
+      pgvector) — not a hand-built image, not Alpine's own postgresql
+      package (no pgvector package exists for Alpine on any branch).
+11.3. WHEN Postgres's data directory is configured THEN it SHALL be a
+      statically-provisioned PersistentVolume backed by the hdd-80 bind
+      mount (`{{ databases_export_path }}/postgres`) — no dynamic
+      StorageClass is used anywhere in this fleet.
+11.4. WHEN another container needs database access THEN the cluster SHALL
+      be reachable over the LAN at `192.168.15.151:5432` via a
+      LoadBalancer Service — never through CIFS/samba.
+11.5. WHEN credentials are needed THEN they SHALL come from an Ansible
+      Vault variable (`vault_bookorbit_environment.POSTGRES_PASSWORD`) —
+      never hardcoded in the repo.
+11.6. WHEN hdd-80 is disconnected and reconnected THEN
+      `recover-hdd80-mount.yml` SHALL re-locate it by filesystem UUID and
+      reboot the databases container, mirroring `recover-nas-mount.yml`'s
+      pattern for hdd-500.
+
 ## Non-Goals (this phase)
 
 - **Backups** — explicitly out of scope per PLAN.md.
-- **Multi-node / HA Kubernetes** — k3s runs single-node on PCT 101 for the arr
-  stack only; jellyfin, samba, and the proxy stay native LXC services.
+- **Multi-node / HA Kubernetes** — every k3s cluster in this fleet
+  (jellyfin, arr, bookorbit, databases) is single-node; samba and the proxy
+  stay native LXC services.
 - **Privileged containers** — forbidden, not just deferred.
-- **hdd-80** — remains unassigned.
 - **Real TLS certificates / internal CA** — self-signed default cert only.
 - **Dedicated anime sonarr/radarr instances** — Configarr syncs the
   SEM-ANIMES profile variant against the existing single sonarr/radarr;

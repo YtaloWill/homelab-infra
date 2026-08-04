@@ -11,21 +11,23 @@ homelab/
 │       └── homelab-foundation/ # requirements.md, design.md, tasks.md
 ├── tofu/                       # OpenTofu — one file per container
 │   ├── versions.tf providers.tf variables.tf outputs.tf templates.tf
-│   ├── jellyfin.tf arr.tf samba.tf proxy.tf
+│   ├── jellyfin.tf arr.tf bookorbit.tf samba.tf databases.tf proxy.tf
 │   └── terraform.tfvars.example
 ├── kubernetes/
 │   └── charts/
 │       ├── arr-stack/          # Helm chart: arr apps + optional gluetun
-│       └── jellyfin/           # Helm chart: jellyfin (iGPU passthrough)
+│       ├── jellyfin/           # Helm chart: jellyfin (iGPU passthrough)
+│       └── bookorbit/          # Helm chart: bookorbit app (Postgres is external)
 └── ansible/
     ├── ansible.cfg
     ├── requirements.yml        # collections
     ├── inventory/
     │   ├── hosts.yml
     │   └── group_vars/all/     # main.yml (plain) + vault.yml (encrypted, ignored)
-    ├── playbooks/              # bootstrap, storage, services, site, migrate-configs
+    ├── playbooks/              # bootstrap, storage, services, site, migrate-configs,
+    │                           # recover-nas-mount, recover-hdd80-mount
     └── roles/
-        ├── samba_server/  jellyfin/  k3s/  arr_stack/  proxy/
+        ├── samba_server/  jellyfin/  k3s/  arr_stack/  bookorbit/  databases/  proxy/
         └── <role>/{tasks,templates,handlers,defaults}/
 ```
 
