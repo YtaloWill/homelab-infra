@@ -1,0 +1,24 @@
+# Wiring lives here; templates are generic.
+# Ansible overrides timezone/paths/secrets via a rendered values file.
+
+timezone: America/Sao_Paulo
+puid: "1000"
+pgid: "10000"
+
+image: ghcr.io/bookorbit/bookorbit:latest
+port: 3000
+
+# hostPath roots inside PCT 102 (the /mnt/samba bind mount).
+dataRoot: /mnt/samba/configs/bookorbit
+booksRoot: /mnt/samba/media/books
+
+appUrl: https://bookorbit.local
+
+# The databases container's own node IP — cross-container/cross-k3s-cluster,
+# so this has to be a real LAN address + LoadBalancer Service, not
+# in-cluster DNS (see design decision 12).
+databaseHost: 192.168.15.151
+
+# JWT_SECRET / SETUP_BOOTSTRAP_TOKEN / POSTGRES_PASSWORD — populated by the
+# rendered values file from Vault, never committed here.
+env: {}

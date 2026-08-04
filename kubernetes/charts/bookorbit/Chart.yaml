@@ -1,0 +1,9 @@
+apiVersion: v2
+name: bookorbit
+description: >-
+  Homelab BookOrbit ebook/audiobook library server. hostPath-backed app data
+  and book library on the samba share. Postgres/pgvector lives in the
+  separate `databases` container (CloudNativePG), reached over the LAN.
+type: application
+version: 0.1.0
+appVersion: "1"

@@ -1,0 +1,91 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bookorbit
+  labels:
+    app.kubernetes.io/name: bookorbit
+    {{- include "bookorbit.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: bookorbit
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: bookorbit
+        {{- include "bookorbit.labels" . | nindent 8 }}
+    spec:
+      containers:
+        - name: bookorbit
+          image: {{ .Values.image }}
+          envFrom:
+            - secretRef:
+                name: bookorbit-env
+          env:
+            - name: NODE_ENV
+              value: production
+            - name: TZ
+              value: {{ .Values.timezone | quote }}
+            - name: PUID
+              value: {{ .Values.puid | quote }}
+            - name: PGID
+              value: {{ .Values.pgid | quote }}
+            - name: APP_URL
+              value: {{ .Values.appUrl | quote }}
+            - name: APP_PORT
+              value: {{ .Values.port | quote }}
+            - name: BOOKS_HOST_PATH
+              value: /books
+            - name: DATABASE_URL
+              value: "postgres://bookorbit:$(POSTGRES_PASSWORD)@{{ .Values.databaseHost }}:5432/bookorbit"
+          ports:
+            - name: http
+              containerPort: {{ .Values.port }}
+          readinessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: {{ .Values.port }}
+            initialDelaySeconds: 20
+            periodSeconds: 30
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: {{ .Values.port }}
+            initialDelaySeconds: 20
+            periodSeconds: 30
+            timeoutSeconds: 5
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: books
+              mountPath: /books
+      volumes:
+        - name: data
+          hostPath:
+            path: {{ .Values.dataRoot }}
+            type: DirectoryOrCreate
+        - name: books
+          hostPath:
+            path: {{ .Values.booksRoot }}
+            type: Directory
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: bookorbit
+  labels:
+    app.kubernetes.io/name: bookorbit
+    {{- include "bookorbit.labels" . | nindent 4 }}
+spec:
+  type: LoadBalancer
+  selector:
+    app.kubernetes.io/name: bookorbit
+  ports:
+    - name: http
+      port: {{ .Values.port }}
+      targetPort: {{ .Values.port }}
+      protocol: TCP
