@@ -20,6 +20,8 @@ ssh_public_keys = [
 # arr_disk_gb      = 12
 # samba_disk_gb    = 4
 
-# Only needed if root's key isn't at the default path — used by
-# databases.tf's provisioner to mkdir hdd-80's bind-mount source over SSH.
-# pve_ssh_private_key_file = "~/.ssh/id_ed25519"
+# Used by databases.tf's provisioner to mkdir hdd-80's bind-mount source
+# over SSH. Verify which key is actually authorized on the PVE host first:
+# `ssh -o BatchMode=yes root@<pve host> echo ok` (Terraform's SSH client
+# doesn't read ~/.ssh/config or try multiple keys like plain ssh does).
+pve_ssh_private_key_file = "~/.ssh/id_rsa"

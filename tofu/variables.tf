@@ -49,9 +49,8 @@ variable "ssh_public_keys" {
 }
 
 variable "pve_ssh_private_key_file" {
-  description = "Private key for root@<pve host> used by the hdd80_postgres_dir provisioner (databases.tf) — agent forwarding isn't assumed to be set up wherever tofu apply runs"
+  description = "Private key for root@<pve host>, used by the hdd80_postgres_dir provisioner (databases.tf). No safe default — which key is actually authorized on the PVE host is host-specific truth (like node_name); verify with `ssh -o BatchMode=yes root@<pve host> echo ok` before setting this, since Terraform's SSH client (unlike plain ssh) doesn't read ~/.ssh/config or try multiple keys."
   type        = string
-  default     = "~/.ssh/id_ed25519"
 }
 
 variable "rootfs_datastore" {
