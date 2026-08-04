@@ -19,3 +19,7 @@ ssh_public_keys = [
 # jellyfin_disk_gb = 8
 # arr_disk_gb      = 12
 # samba_disk_gb    = 4
+
+# Only needed if root's key isn't at the default path — used by
+# databases.tf's provisioner to mkdir hdd-80's bind-mount source over SSH.
+# pve_ssh_private_key_file = "~/.ssh/id_ed25519"

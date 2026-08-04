@@ -10,10 +10,10 @@ resource "null_resource" "hdd80_postgres_dir" {
   }
 
   connection {
-    type  = "ssh"
-    host  = regex("https?://([^:/]+)", var.pve_endpoint)[0]
-    user  = "root"
-    agent = true
+    type        = "ssh"
+    host        = regex("https?://([^:/]+)", var.pve_endpoint)[0]
+    user        = "root"
+    private_key = file(pathexpand(var.pve_ssh_private_key_file))
   }
 
   provisioner "remote-exec" {

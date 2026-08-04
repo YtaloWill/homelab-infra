@@ -48,6 +48,12 @@ variable "ssh_public_keys" {
   type        = list(string)
 }
 
+variable "pve_ssh_private_key_file" {
+  description = "Private key for root@<pve host> used by the hdd80_postgres_dir provisioner (databases.tf) — agent forwarding isn't assumed to be set up wherever tofu apply runs"
+  type        = string
+  default     = "~/.ssh/id_ed25519"
+}
+
 variable "rootfs_datastore" {
   description = "LVM-thin datastore for container rootfs"
   type        = string
