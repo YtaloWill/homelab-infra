@@ -1,0 +1,51 @@
+# Rendered by Ansible (roles/databases) — do not edit.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: databases
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: bookorbit-postgres-credentials
+  namespace: databases
+type: kubernetes.io/basic-auth
+stringData:
+  username: bookorbit
+  password: "{{ vault_bookorbit_environment.POSTGRES_PASSWORD }}"
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: bookorbit-postgres
+  namespace: databases
+spec:
+  instances: 1
+  imageName: ghcr.io/cloudnative-pg/postgresql:17.6-standard-trixie
+  storage:
+    size: 20Gi
+    storageClassName: manual
+  bootstrap:
+    initdb:
+      database: bookorbit
+      owner: bookorbit
+      secret:
+        name: bookorbit-postgres-credentials
+      postInitApplicationSQL:
+        - CREATE EXTENSION IF NOT EXISTS vector;
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: bookorbit-postgres-lb
+  namespace: databases
+spec:
+  type: LoadBalancer
+  selector:
+    cnpg.io/cluster: bookorbit-postgres
+    cnpg.io/instanceRole: primary
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432
+      protocol: TCP

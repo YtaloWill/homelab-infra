@@ -11,6 +11,18 @@
     - k3s
     - arr_stack
 
+- name: Database tier (k3s + CloudNativePG)
+  hosts: databases
+  roles:
+    - k3s
+    - databases
+
+- name: BookOrbit ebook/audiobook library server (k3s + helm)
+  hosts: bookorbit
+  roles:
+    - k3s
+    - bookorbit
+
 - name: Local DNS + reverse proxy
   hosts: traefik
   roles:

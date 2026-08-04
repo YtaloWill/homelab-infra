@@ -1,0 +1,14 @@
+# Rendered by Ansible (roles/bookorbit) — do not edit; see
+# kubernetes/charts/bookorbit/values.yaml for app wiring.
+timezone: {{ tz }}
+puid: "{{ puid }}"
+pgid: "{{ pgid }}"
+dataRoot: {{ configs_root }}/bookorbit
+booksRoot: {{ media_root }}/books
+appUrl: https://bookorbit.{{ local_domain }}
+databaseHost: {{ bookorbit_db_host }}
+
+env:
+  JWT_SECRET: "{{ vault_bookorbit_environment.JWT_SECRET }}"
+  SETUP_BOOTSTRAP_TOKEN: "{{ vault_bookorbit_environment.SETUP_BOOTSTRAP_TOKEN }}"
+  POSTGRES_PASSWORD: "{{ vault_bookorbit_environment.POSTGRES_PASSWORD }}"

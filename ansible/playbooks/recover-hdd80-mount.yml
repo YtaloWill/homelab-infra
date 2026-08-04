@@ -1,0 +1,41 @@
+---
+# Run after any hdd-80 disconnect/reconnect (or whenever the databases
+# container can't read its Postgres data but `pct list` shows it running).
+# A bind mount pins the mounted filesystem *instance* at container-start
+# time, not the path: when the host mounts a fresh instance over hdd-80 (new
+# device node after a reconnect), the databases container is still bound to
+# the old, now-dead instance until it's rebooted. No CIFS layer sits in
+# between here (unlike hdd-500 -> samba -> jellyfin/arr), so the cascade is
+# shorter: remount on the host, then reboot the one consumer container.
+- name: Refresh the databases container's bind mount of hdd-80
+  hosts: proxmox
+  tasks:
+    - name: Find hdd-80's current device node (sdX letters shift across reconnects)
+      ansible.builtin.command: "blkid -U {{ hdd80_uuid }}"
+      register: hdd80_device
+      changed_when: false
+
+    - name: Check whether hdd-80 is already mounted
+      ansible.builtin.command: "findmnt -n {{ hdd80_mount_path }}"
+      register: hdd80_findmnt
+      failed_when: false
+      changed_when: false
+
+    - name: Mount hdd-80 at {{ hdd80_mount_path }}
+      ansible.builtin.command: "mount {{ hdd80_device.stdout }} {{ hdd80_mount_path }}"
+      when: hdd80_findmnt.rc != 0
+
+    - name: Reboot databases container (151)
+      ansible.builtin.command: pct reboot 151
+
+    - name: Wait for k3s to come back up
+      ansible.builtin.command: pct exec 151 -- rc-service k3s status
+      register: databases_k3s_status
+      until: databases_k3s_status.rc == 0
+      retries: 10
+      delay: 3
+      changed_when: false
+
+    - name: Confirm hdd-80 is actually readable inside the databases container
+      ansible.builtin.command: "pct exec 151 -- ls {{ databases_export_path }}"
+      changed_when: false

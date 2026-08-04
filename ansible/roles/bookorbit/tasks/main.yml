@@ -1,0 +1,54 @@
+---
+- name: Check the share is available
+  ansible.builtin.stat:
+    path: "{{ configs_root }}/bookorbit"
+  register: bo_share
+
+- name: Abort when the share is not mounted
+  ansible.builtin.assert:
+    that: bo_share.stat.exists
+    fail_msg: >-
+      {{ configs_root }}/bookorbit missing — run storage.yml first
+      (samba + host CIFS mount), then restart this container.
+
+- name: Check the books media folder is available
+  ansible.builtin.stat:
+    path: "{{ media_root }}/books"
+  register: bo_books
+
+- name: Abort when the books folder is not on the share
+  ansible.builtin.assert:
+    that: bo_books.stat.exists
+    fail_msg: >-
+      {{ media_root }}/books missing — run storage.yml first.
+
+- name: Stack directory
+  ansible.builtin.file:
+    path: "{{ bookorbit_stack_dir }}"
+    state: directory
+    mode: "0755"
+
+- name: Copy the Helm chart to the container
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../kubernetes/charts/bookorbit/"
+    dest: "{{ bookorbit_stack_dir }}/chart/"
+
+- name: Render values (contains credentials)
+  ansible.builtin.template:
+    src: values-homelab.yaml.j2
+    dest: "{{ bookorbit_stack_dir }}/values.yaml"
+    mode: "0600"
+  no_log: true
+
+# helm upgrade --install is idempotent; k8s reconciles the rest. Change
+# reporting is delegated to helm's own release history.
+- name: Deploy the bookorbit release
+  ansible.builtin.command:
+    cmd: >-
+      helm upgrade --install bookorbit {{ bookorbit_stack_dir }}/chart
+      -f {{ bookorbit_stack_dir }}/values.yaml
+      --namespace bookorbit --create-namespace
+      --wait --timeout 5m
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  changed_when: false

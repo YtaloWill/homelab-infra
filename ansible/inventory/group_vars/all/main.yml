@@ -13,6 +13,11 @@ pgid: 10000
 hdd500_uuid: 932511de-e45b-4035-bacf-0fe88fd30bcb
 hdd500_mount_path: /mnt/pve/hdd-500
 
+# --- hdd-80 (physical disk backing the databases container) ---------------
+# Same reconnect story as hdd-500 (see recover-hdd80-mount.yml)
+hdd80_uuid: 1ab3d626-589d-4895-aef3-924bf3ff4363
+hdd80_mount_path: /mnt/pve/hdd-80
+
 # --- samba / storage ------------------------------------------------------
 samba_host: 192.168.15.150
 samba_share: nas
@@ -33,6 +38,10 @@ media_dirs:
   - shows
   - test_movies
   - test_shows
+  - books
+  - books/Ebooks
+  - books/Audiobooks
+  - books/Comics
 
 arr_services:
   - prowlarr
@@ -53,6 +62,20 @@ arr_stack_dir: /srv/arr
 # Same chart-copy convention as arr_stack_dir. App wiring:
 # kubernetes/charts/jellyfin/values.yaml.
 jellyfin_stack_dir: /srv/jellyfin
+
+# --- bookorbit (k3s + helm) --------------------------------------------------
+# Same chart-copy convention as arr_stack_dir/jellyfin_stack_dir. App
+# wiring: kubernetes/charts/bookorbit/values.yaml.
+bookorbit_stack_dir: /srv/bookorbit
+bookorbit_db_host: 192.168.15.151
+
+# --- databases (k3s + CloudNativePG) -----------------------------------------
+# hdd-80 bind-mounted directly into the container (no CIFS — Postgres data
+# doesn't tolerate network-filesystem locking, see design decision 12).
+# Rendered manifests (PV + CNPG Cluster) live under databases_stack_dir.
+databases_export_path: /srv/data
+databases_stack_dir: /srv/databases
+cnpg_version: "1.29.2"
 
 # Independent VPN egress (helm value gluetun.enabled). Enabling requires valid
 # credentials in vault (vault_gluetun_environment); no other workload is
@@ -81,6 +104,8 @@ traefik_version: "v3.4.1"
 proxy_services:
   - name: jellyfin
     url: http://192.168.15.102:8096
+  - name: bookorbit
+    url: http://192.168.15.105:3000
   - name: prowlarr
     url: http://192.168.15.103:9696
   - name: qbittorrent

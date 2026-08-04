@@ -24,3 +24,13 @@ vault_gluetun_environment: {}
 vault_configarr_environment:
   SONARR_API_KEY: CHANGE_ME
   RADARR_API_KEY: CHANGE_ME
+
+# BookOrbit + its Postgres database (in the separate `databases` container).
+# Generate: JWT_SECRET with `openssl rand -hex 32`, SETUP_BOOTSTRAP_TOKEN
+# with `openssl rand -hex 16`, POSTGRES_PASSWORD with `openssl rand -hex 24`.
+# POSTGRES_PASSWORD is shared: the databases role uses it to create the
+# bookorbit db/user, bookorbit's own chart uses it to build DATABASE_URL.
+vault_bookorbit_environment:
+  JWT_SECRET: CHANGE_ME
+  SETUP_BOOTSTRAP_TOKEN: CHANGE_ME
+  POSTGRES_PASSWORD: CHANGE_ME
