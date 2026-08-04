@@ -13,7 +13,7 @@
 
 - name: Install the CloudNativePG operator
   ansible.builtin.command: >-
-    k3s kubectl apply --server-side -f
+    kubectl apply --server-side -f
     https://raw.githubusercontent.com/cloudnative-pg/cloudnative-pg/release-1.29/releases/cnpg-{{ cnpg_version }}.yaml
   environment:
     KUBECONFIG: /etc/rancher/k3s/k3s.yaml
@@ -21,7 +21,7 @@
 
 - name: Wait for the CloudNativePG operator to roll out
   ansible.builtin.command: >-
-    k3s kubectl rollout status deployment -n cnpg-system
+    kubectl rollout status deployment -n cnpg-system
     cnpg-controller-manager --timeout=180s
   environment:
     KUBECONFIG: /etc/rancher/k3s/k3s.yaml
@@ -41,7 +41,7 @@
 
 - name: Apply the Postgres data PersistentVolume
   ansible.builtin.command: >-
-    k3s kubectl apply -f {{ databases_stack_dir }}/postgres-pv.yaml
+    kubectl apply -f {{ databases_stack_dir }}/postgres-pv.yaml
   environment:
     KUBECONFIG: /etc/rancher/k3s/k3s.yaml
   changed_when: false
@@ -55,14 +55,14 @@
 
 - name: Apply the BookOrbit Postgres Cluster
   ansible.builtin.command: >-
-    k3s kubectl apply -f {{ databases_stack_dir }}/bookorbit-cluster.yaml
+    kubectl apply -f {{ databases_stack_dir }}/bookorbit-cluster.yaml
   environment:
     KUBECONFIG: /etc/rancher/k3s/k3s.yaml
   changed_when: false
 
 - name: Wait for the BookOrbit Postgres cluster to be ready
   ansible.builtin.command: >-
-    k3s kubectl wait cluster/bookorbit-postgres -n databases
+    kubectl wait cluster/bookorbit-postgres -n databases
     --for=condition=Ready --timeout=300s
   environment:
     KUBECONFIG: /etc/rancher/k3s/k3s.yaml
