@@ -2,6 +2,10 @@
 
 ## Overview
 
+This spec uses a two-layer IaC approach: **OpenTofu** (bpg/proxmox provider) manages the lifecycle of seven unprivileged LXC containers on a single Proxmox VE node, while **Ansible** handles all in-container configuration including k3s, Helm charts, Samba, dnsmasq, and Traefik. Persistent service config lives on a central Samba NAS container (PCT 150) that is bind-mounted into each consumer container over CIFS, with the sole exceptions of the proxy container (PCT 104, stateless) and the databases container (PCT 151, whose Postgres data is backed directly by the hdd-80 Proxmox bind mount to avoid network-filesystem locking risks.
+
+## Architecture
+
 Two-layer IaC: **OpenTofu** (bpg/proxmox provider) owns container lifecycle on
 the Proxmox node; **Ansible** owns everything inside containers and the one
 host-level concern (the CIFS mount). The existing containers (100, 101, 150)
@@ -37,6 +41,9 @@ flowchart TB
         subgraph P151[PCT 151 databases - Alpine + k3s]
             PG[CloudNativePG cluster<br/>bookorbit-postgres :5432]
         end
+        subgraph P106[PCT 106 homepage - Alpine + k3s]
+            HP[helm release homepage :3000]
+        end
         HM["/mnt/samba (host CIFS mount)"]
         HDD["hdd-500 dir storage<br/>/mnt/pve/hdd-500/nas"]
         HDD80["hdd-80 dir storage<br/>/mnt/pve/hdd-80/postgres"]
@@ -46,11 +53,13 @@ flowchart TB
     TR --> JF
     TR --> AR
     TR --> BO
+    TR --> HP
     HDD -->|bind mount| SMB
     SMB -->|CIFS //150/nas| HM
     HM -->|bind mount mp0| JF
     HM -->|bind mount mp0| AR
     HM -->|bind mount mp0| BO
+    HM -->|bind mount mp0| HP
     HDD80 -->|bind mount mp0| PG
     BO -->|LAN :5432| PG
 ```
@@ -65,6 +74,7 @@ flowchart TB
 | 104 | proxy    | Alpine    | 192.168.15.104/24  | 1   | 512/512     | 2 GB               | none (deliberately NAS-independent) |
 | 102 | bookorbit | Alpine + k3s | 192.168.15.105/24 | 2 | 2560/512  | 10 GB              | bind: host `/mnt/samba` → `/mnt/samba` |
 | 151 | databases | Alpine + k3s | 192.168.15.151/24 | 2 | 2048/512  | 8 GB               | bind: host `/mnt/pve/hdd-80/postgres` → `/srv/data` |
+| 106 | homepage  | Alpine + k3s | 192.168.15.106/24 | 1 | 1024/512  | 8 GB               | bind: host `/mnt/samba` → `/mnt/samba` |
 
 All unprivileged. Gateway `192.168.15.1`, bridge `vmbr0` (variables). These
 sizes are the target for the from-scratch rebuild (containers 100/101/150
@@ -322,7 +332,34 @@ footprint the old containers happened to grow into.
     own auto-created Service is ClusterIP (ordinary Postgres client, not a
     web UI, so `Requirement 6`'s Traefik routing doesn't apply here).
 
-## Components
+14. **`vault_api_keys` — Homepage's read-only API key dict.** A single Vault
+    dict (`sonarr_api_key`, `radarr_api_key`, `prowlarr_api_key`,
+    `jellyfin_api_key`, `jellyseerr_api_key`, `bazarr_api_key`) that the
+    `homepage` role reads from for widget credentials, via its own rendered
+    values file and Kubernetes Secret. Named generically (not
+    `vault_homepage_environment`) so other services that later need
+    read-only API access to the same backends could adopt it too — Configarr
+    keeps its own separate `vault_configarr_environment` for now, since
+    migrating an already-deployed service's secret source isn't part of this
+    change. `vault_qbittorrent_credentials` is a separate dict (`username`,
+    `password`) for the qBittorrent web UI — kept separate because it's a
+    login credential, not an API token, and may be rotated independently.
+    `vault_gluetun_environment`, `vault_bookorbit_environment`, and
+    `vault_configarr_environment` remain unchanged. `vault.yml.example`
+    documents all five dicts.
+
+15. **Homepage runs on k3s + Helm inside an unprivileged LXC (PCT 106),
+    mirroring the jellyfin/bookorbit pattern.** Homepage is a stateless
+    Node.js app whose only persistent state is its config directory (YAML
+    files under `/app/config` inside the container, hostPath-mounted from the
+    samba share at `/mnt/samba/configs/homepage/`). k3s overhead (~700 MB) is
+    the same as every other single-service container in the fleet; no
+    architectural reason to diverge from the established deployment model.
+    Port 3000 is Homepage's default; Traefik routes `homepage.local` to it.
+    NAS-independence is not required here — Homepage's config *is* its value
+    (bookmarks, widget config) and lives on the share by design.
+
+## Components and Interfaces
 
 ### OpenTofu (`tofu/`)
 
@@ -330,7 +367,7 @@ footprint the old containers happened to grow into.
 - `templates.tf` — `proxmox_virtual_environment_download_file` for the Alpine
   official template (URL is a variable; verify current filename with
   `pveam available`). Every container in the fleet is Alpine.
-- `jellyfin.tf`, `arr.tf`, `samba.tf`, `proxy.tf` — one container each, as per
+- `jellyfin.tf`, `arr.tf`, `samba.tf`, `proxy.tf`, `bookorbit.tf`, `databases.tf`, `homepage.tf` — one container each, as per
   the inventory table.
 - `variables.tf` / `terraform.tfvars.example` — all tunables; token is
   sensitive, no default.
@@ -349,6 +386,7 @@ Roles:
 | `bookorbit`    | PCT 102  | copies `kubernetes/charts/bookorbit` to the CT, renders values (paths on share, database host, Vault creds), `helm upgrade --install` |
 | `databases`    | PCT 151  | `kubectl apply`s the CloudNativePG operator manifest, a static hdd-80-backed `PersistentVolume`, and the `bookorbit-postgres` `Cluster`/Secret/Service — no Helm involved |
 | `proxy`        | PCT 104  | dnsmasq (`address=/local/104`, upstream forwarders), Traefik binary + OpenRC service, static config (web→websecure redirect, file provider), dynamic routers/services rendered from `proxy_services` list |
+| `homepage`     | PCT 106  | copies `kubernetes/charts/homepage` to the CT, renders values (`homepage_services`, `vault_api_keys`, `vault_qbittorrent_credentials`), `helm upgrade --install` |
 
 Playbooks:
 
@@ -357,7 +395,7 @@ Playbooks:
 - `storage.yml` — samba_server role, then PVE host: `cifs-utils`, credentials
   file (0600, from Vault), fstab + mount `/mnt/samba`; restarts consumer
   containers when the mount first appears (they bind-mounted an empty dir).
-- `services.yml` — jellyfin, k3s+arr_stack, proxy roles.
+- `services.yml` — jellyfin, k3s+arr_stack, proxy, bookorbit, databases, homepage roles.
 - `site.yml` — imports storage.yml then services.yml.
 - `migrate-configs.yml` — one-time copy of legacy configs to the share
   (stop service → copy iff destination empty → start; never deletes sources).
@@ -372,6 +410,7 @@ Playbooks:
 |----------------------|-------------------------------|
 | jellyfin.local       | http://192.168.15.102:8096    |
 | bookorbit.local      | http://192.168.15.105:3000    |
+| homepage.local       | http://192.168.15.106:3000    |
 | prowlarr.local       | http://192.168.15.103:9696    |
 | qbittorrent.local    | http://192.168.15.103:8080    |
 | radarr.local         | http://192.168.15.103:7878    |
@@ -390,13 +429,182 @@ media/books/{Ebooks,Audiobooks,Comics}
 configs/
   jellyfin/{config,data}
   bookorbit/
+  homepage/
   arr/{prowlarr,qbittorrent,radarr,sonarr,bazarr,jellyseerr,configarr}
 ```
 
 Postgres's own data (hdd-80-backed, PCT 151) is **not** part of this share
 — see Key decision 12.
 
-## Error handling & safety
+## Data Models
+
+### `proxy_services` list entry
+
+Each entry in the `proxy_services` Ansible variable drives one Traefik router + service pair rendered by the `proxy` role.
+
+```yaml
+- name: string           # subdomain label, e.g. "jellyfin" → jellyfin.local
+  url: string             # full URL of the upstream, e.g. "http://192.168.15.102:8096"
+  insecure_backend: bool  # optional; true for HTTPS upstreams with self-signed certs (proxmox.local)
+```
+
+### `homepage_services` list entry
+
+Consumed by the `homepage` role to render Homepage's `services.yaml`.
+
+```yaml
+- name: string        # display name shown in the dashboard
+  url: string          # full HTTPS URL visible to the browser, e.g. "https://jellyfin.local"
+  icon: string          # icon slug resolved by Homepage's icon pack, e.g. "jellyfin"
+  widget:                # optional; activates a live-data widget
+    type: string          # Homepage widget type, e.g. "jellyfin", "qbittorrent", "sonarr"
+    url: string             # internal backend URL the server-side widget calls
+    key_ref: string          # names a vault_api_keys entry; the chart's ConfigMap turns this
+                              # into a {{HOMEPAGE_VAR_<key_ref>}} placeholder — the actual
+                              # secret only ever reaches a Kubernetes Secret (Requirement
+                              # 12.5), never this ConfigMap
+    username_ref: string      # same indirection, for vault_qbittorrent_credentials.username
+    password_ref: string      # same indirection, for vault_qbittorrent_credentials.password
+```
+
+### `vault_api_keys` dict
+
+Vault dict for Homepage's widget credentials; named generically so other
+services could adopt it later, though `arr_stack`/Configarr keeps its own
+separate `vault_configarr_environment` for now.
+
+```yaml
+sonarr_api_key: string
+radarr_api_key: string
+prowlarr_api_key: string
+jellyfin_api_key: string
+jellyseerr_api_key: string
+bazarr_api_key: string
+```
+
+### `vault_qbittorrent_credentials` dict
+
+Login credentials for the qBittorrent web UI; kept separate from API keys because rotation cadence differs.
+
+```yaml
+username: string
+password: string
+```
+
+### `vault_gluetun_environment` dict
+
+Environment variables injected into the gluetun container via a Kubernetes Secret (`envFrom`). Exact keys depend on the VPN provider; typical shape:
+
+```yaml
+VPN_SERVICE_PROVIDER: string   # e.g. "mullvad"
+VPN_TYPE: string               # e.g. "wireguard"
+WIREGUARD_PRIVATE_KEY: string
+WIREGUARD_ADDRESSES: string
+SERVER_COUNTRIES: string
+```
+
+### `vault_bookorbit_environment` dict
+
+Environment variables injected into the BookOrbit container. Scope is local to PCT 102.
+
+```yaml
+DATABASE_URL: string   # postgres connection string, e.g. "postgresql://bookorbit:<pw>@192.168.15.151:5432/bookorbit"
+SECRET_KEY: string     # application secret
+# …any additional BookOrbit env vars
+```
+
+### Helm values — `arr-stack` chart (key fields)
+
+```yaml
+gluetun:
+  enabled: bool                # renders the gluetun Deployment + Service when true
+  image: string                # container image, e.g. "ghcr.io/qdm12/gluetun:latest"
+
+configarr:
+  enabled: bool                # renders the configarr-sync Job when true
+  syncTrigger: string|int      # part of the Job name; increment to force a resync
+
+configs_root: string           # hostPath prefix on the node, e.g. "/mnt/samba/configs/arr"
+media_root: string             # hostPath prefix for media, e.g. "/mnt/samba/media"
+```
+
+### Helm values — `homepage` chart (key fields)
+
+```yaml
+config_path: string            # hostPath on the node for /app/config, e.g. "/mnt/samba/configs/homepage"
+allowedHosts: string           # HOMEPAGE_ALLOWED_HOSTS — Homepage 403s any other Host header
+services: list                 # rendered by a ConfigMap into /app/config/services.yaml (mounted
+                                # over config_path via subPath); shape matches homepage_services above
+apiKeys: map                   # HOMEPAGE_VAR_-prefixed keys -> a Kubernetes Secret (envFrom)
+qbittorrentCredentials: map    # username/password -> the same Secret, HOMEPAGE_VAR_-prefixed
+```
+
+### Helm values — `jellyfin` chart (key fields)
+
+```yaml
+config_path: string            # hostPath for /etc/jellyfin + /var/lib/jellyfin, e.g. "/mnt/samba/configs/jellyfin"
+media_path: string             # hostPath for /mnt/samba/media
+gpu:
+  enabled: bool                # mounts /dev/dri/renderD128 and /dev/dri/card1 when true
+```
+
+### Helm values — `bookorbit` chart (key fields)
+
+```yaml
+config_path: string            # hostPath for app config on samba share
+database_host: string          # hostname/IP of the databases container, e.g. "192.168.15.151"
+database_port: int             # default 5432
+```
+
+---
+
+## Correctness Properties
+
+These invariants must hold at all times across the fleet. They are stated as named properties suitable for audit and property-based reasoning.
+
+### Property 1: No plaintext secrets
+**Validates: Requirements 8.1, 8.2**
+No secret value (API key, password, VPN credential, database URL) appears in any file committed to the repository. All secrets flow exclusively through Vault → Ansible vars (in-memory) → rendered files with mode 0600 on the target host → Kubernetes Secrets. `vault.yml` is never committed; only `vault.yml.example` (with placeholder strings) is tracked.
+
+### Property 2: Every container is unprivileged
+**Validates: Requirements 1.2**
+All LXC containers are created with `unprivileged = true` in OpenTofu. No container has `CAP_SYS_ADMIN` or any other elevated capability granted, with the sole exception of the explicitly declared device passthroughs (`/dev/dri/*` for PCT 100, `/dev/net/tun` for PCT 101).
+
+### Property 3: CIFS mount uses `nobrl`
+**Validates: Requirements 2.4**
+The host fstab entry for `//192.168.15.150/nas` always includes the `nobrl` option. Any SQLite database stored on the share (arr configs, jellyfin library DB) depends on this to avoid byte-range lock failures.
+
+### Property 4: Config directories live on the samba share
+**Validates: Requirements 2.2, 3.2, 4.3, 5.2, 12.3**
+For every stateful service (jellyfin, arr stack, bookorbit, homepage), the config hostPath resolves to a subdirectory of `/mnt/samba/configs/`. The proxy container (PCT 104) and the databases container (PCT 151) are the only declared exceptions (Key decisions 3 and 12 respectively).
+
+### Property 5: Postgres data never touches a network filesystem
+**Validates: Requirements 11.1, 11.3**
+The CloudNativePG `Cluster`'s PersistentVolume hostPath resolves to the hdd-80 Proxmox bind mount (`/srv/data` inside PCT 151), not to any path under `/mnt/samba`. The PV reclaim policy is `Retain`.
+
+### Property 6: gluetun failure is isolated
+**Validates: Requirements 4.4, 4.5, 4.6**
+No workload's Kubernetes manifest contains a reference to the gluetun Service or pod. The only coupling point is an operator-configured in-app proxy setting inside qBittorrent. Disabling gluetun (`gluetun.enabled: false`) produces byte-identical manifests for every other workload.
+
+### Property 7: Migration is non-destructive
+**Validates: Requirements 7.1, 7.2, 7.3**
+`migrate-configs.yml` only writes to a destination directory when it is empty, and never deletes the source. Running it more than once is idempotent and safe.
+
+### Property 8: hdd-500 NAS data survives the PCT 150 rebuild
+**Validates: Requirements 2.1**
+The delete-and-recreate sequence for PCT 150 is only safe after the raw disk image has been fully extracted to `/mnt/pve/hdd-500/nas` and the copy verified. The runbook in tasks.md enforces this ordering; no automation step deletes PCT 150 before the extraction is confirmed.
+
+### Property 9: Static IPs are stable
+**Validates: Requirements 1.1, 6.1, 12.1**
+Each container's IP is declared in both OpenTofu (`ipv4_address`) and Ansible inventory. No container relies on DHCP. The Traefik routing table and all inter-service references (`database_host`, widget URLs) use these stable addresses.
+
+### Property 10: `prevent_destroy` guards containers after initial creation
+**Validates: Requirements 1.3**
+Once OpenTofu creates PCT 100, 101, 102, 104, 106, 150, and 151, their resource blocks carry `lifecycle { prevent_destroy = true }`. A subsequent `tofu plan` that would destroy any of them errors out before apply, requiring an explicit lifecycle override.
+
+---
+
+## Error Handling
 
 - `prevent_destroy` on PCT 100/101/150 guards them once the rebuild is done;
   it does not block the deliberate, operator-driven delete that precedes it.
@@ -431,10 +639,10 @@ Postgres's own data (hdd-80-backed, PCT 151) is **not** part of this share
 
 - **Static:** `tofu fmt -check`, `tofu validate`; `ansible-lint` /
   `ansible-playbook --syntax-check` for every playbook; `helm lint` +
-  `helm template` for all three charts (arr-stack: both `gluetun.enabled`
-  and both `configarr.enabled` states); `kubectl apply --dry-run=client -f`
-  the rendered CloudNativePG manifests (PV/Cluster/Service — no Helm chart
-  to lint for the databases role).
+  `helm template` for all four charts (arr-stack: both `gluetun.enabled`
+  and both `configarr.enabled` states; homepage, jellyfin, bookorbit);
+  `kubectl apply --dry-run=client -f` the rendered CloudNativePG manifests
+  (PV/Cluster/Service — no Helm chart to lint for the databases role).
 - **Plan review:** `tofu plan` should show 100/101/150 being created fresh
   (expected, since the old containers are deleted first) with no unexpected
   diffs against this spec's declared config.
@@ -457,3 +665,7 @@ Postgres's own data (hdd-80-backed, PCT 151) is **not** part of this share
   - `kubectl get pods -n bookorbit` Running; `dig +short bookorbit.local
     @192.168.15.104` → `192.168.15.104`; `curl -kIs https://bookorbit.local`
     → 200/302.
+  - `kubectl get pods -n homepage` Running; `dig +short homepage.local
+    @192.168.15.104` → `192.168.15.104`; `curl -kIs https://homepage.local`
+    → 200/302; service widgets display live data (Jellyfin now-playing,
+    qBittorrent download stats, Sonarr/Radarr/BookOrbit library counts).

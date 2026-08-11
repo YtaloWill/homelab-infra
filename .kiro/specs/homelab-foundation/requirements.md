@@ -1,4 +1,4 @@
-# Requirements — homelab-foundation
+# Requirements Document
 
 ## Introduction
 
@@ -17,6 +17,35 @@ already-populated data instead of starting empty.
 
 Original intent capture: [PLAN.md](../../../PLAN.md). This spec is the source of
 truth where the two diverge.
+
+## Glossary
+
+- **LXC**: Linux Container — the container technology used by Proxmox to run lightweight, OS-level virtualized environments.
+- **PCT**: Proxmox Container — the numeric ID assigned to each LXC container in the Proxmox cluster (e.g., PCT 100, PCT 101).
+- **Proxmox**: The bare-metal hypervisor platform hosting all containers in this homelab (Proxmox Virtual Environment).
+- **OpenTofu**: Open-source Infrastructure-as-Code tool (Terraform fork) used to declaratively provision LXC containers via the Proxmox API.
+- **Ansible**: Configuration management tool used to install and configure services inside containers after provisioning.
+- **Ansible Vault**: Ansible's built-in encryption facility for storing secrets (passwords, tokens, API keys) in the repository safely.
+- **k3s**: Lightweight Kubernetes distribution installed inside individual Alpine LXC containers to run workloads as Kubernetes pods.
+- **Helm**: Kubernetes package manager used to deploy workloads from repo-local charts (`kubernetes/charts/`).
+- **hostPath**: A Kubernetes volume type that mounts a directory from the node's filesystem directly into a pod.
+- **CIFS**: Common Internet File System — the network file-sharing protocol (SMB) used to mount the samba share on the Proxmox host.
+- **Samba**: The Linux implementation of the SMB/CIFS protocol, running in PCT 150 to serve the NAS share.
+- **hdd-500**: The 500 GB hard disk whose host directory is bind-mounted into the samba container as the NAS data root.
+- **hdd-80**: The 80 GB hard disk reserved for the databases container's Postgres data; left unassigned in this phase.
+- **local-lvm**: The LVM-thin Proxmox storage pool used for container rootfs disks.
+- **Traefik**: Reverse proxy running in PCT 104 that handles TLS termination and routes `*.local` hostnames to backend services.
+- **dnsmasq**: Lightweight DNS server running in PCT 104 that resolves `*.local` names and forwards other queries upstream.
+- **gluetun**: Optional VPN client container providing HTTP-proxy egress on port 8888 inside the arr k3s cluster.
+- **Configarr**: Tool that synchronises quality profiles and custom formats from TRaSH-Guides into Sonarr/Radarr via their APIs.
+- **CloudNativePG**: Kubernetes operator that manages PostgreSQL clusters; used in PCT 151 to run Postgres with pgvector.
+- **pgvector**: PostgreSQL extension providing vector similarity search, required by BookOrbit.
+- **bind-mount**: A Proxmox LXC feature that mounts a host directory into a container at a specified path without CIFS.
+- **LoadBalancer Service**: A Kubernetes Service type that, under k3s with servicelb, assigns a node-IP:port entry point for a workload.
+- **PersistentVolume (PV)**: A Kubernetes storage resource; in this fleet always statically provisioned via hostPath, no dynamic StorageClass.
+- **QSV**: Intel Quick Sync Video — hardware-accelerated transcoding available via the iGPU in PCT 100's host.
+
+## Requirements
 
 ## Requirement 1 — Declarative container provisioning (OpenTofu)
 
@@ -297,12 +326,52 @@ convention, which Postgres doesn't tolerate.
       reboot the databases container, mirroring `recover-nas-mount.yml`'s
       pattern for hdd-500.
 
+## Requirement 12 — Homepage service dashboard
+
+**User Story:** As the operator, I want a unified service dashboard at
+`https://homepage.local` that shows all fleet services with live stats
+(now-playing for Jellyfin, download stats for qBittorrent, library counts
+for Sonarr/Radarr/BookOrbit, etc.), so I have a single pane of glass without
+memorising IP:port pairs.
+
+### Acceptance Criteria
+
+12.1. WHEN the homepage container (PCT 106) is provisioned THEN it SHALL be
+      an unprivileged Alpine LXC at `192.168.15.106` running a single-node k3s
+      server, following the same pattern as PCT 100 (jellyfin) and PCT 102
+      (bookorbit).
+12.2. WHEN the homepage role runs THEN Homepage SHALL run as the official
+      `ghcr.io/gethomepage/homepage` image, deployed via a repo-local Helm
+      chart (`kubernetes/charts/homepage`), exposed as a LoadBalancer Service
+      on port 3000.
+12.3. WHEN Homepage's config directory is configured THEN it SHALL live under
+      `/mnt/samba/configs/homepage/`, mounted as a hostPath volume — the same
+      samba-share config convention as every other stateful service in the fleet
+      (Requirement 2.2).
+12.4. WHEN Homepage is configured THEN the list of displayed services SHALL be
+      driven by the `homepage_services` Ansible variable, covering all fleet
+      services: jellyfin, prowlarr, qbittorrent, radarr, sonarr, bazarr,
+      jellyseerr, flaresolverr, bookorbit, proxmox, and traefik.
+12.5. WHEN Homepage displays live service stats THEN API keys SHALL flow Vault
+      (`vault_api_keys`) → Ansible-rendered values file → Kubernetes Secret;
+      qBittorrent credentials SHALL flow Vault
+      (`vault_qbittorrent_credentials`) → Ansible-rendered values file →
+      Kubernetes Secret.
+12.6. WHEN the proxy routes requests THEN `homepage.local` SHALL be added to
+      the Traefik routing table, pointing to `http://192.168.15.106:3000`,
+      consistent with Requirement 6.3.
+12.7. THE samba share tree SHALL include a `configs/homepage/` directory,
+      consistent with Requirement 3.2's share-tree convention.
+12.8. WHEN Homepage is deployed THEN `TZ=America/Sao_Paulo`, `PUID=1000`, and
+      `PGID=10000` SHALL be set, consistent with every other service in the
+      fleet (Requirement 4.2).
+
 ## Non-Goals (this phase)
 
 - **Backups** — explicitly out of scope per PLAN.md.
 - **Multi-node / HA Kubernetes** — every k3s cluster in this fleet
-  (jellyfin, arr, bookorbit, databases) is single-node; samba and the proxy
-  stay native LXC services.
+  (jellyfin, arr, bookorbit, databases, homepage) is single-node; samba and
+  the proxy stay native LXC services.
 - **Privileged containers** — forbidden, not just deferred.
 - **Real TLS certificates / internal CA** — self-signed default cert only.
 - **Dedicated anime sonarr/radarr instances** — Configarr syncs the
