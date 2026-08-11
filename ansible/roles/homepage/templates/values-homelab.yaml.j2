@@ -7,7 +7,7 @@ configRoot: {{ configs_root }}/homepage
 allowedHosts: homepage.{{ local_domain }}
 
 services:
-{{ homepage_services | to_nice_yaml(indent=2) | indent(2) }}
+{{ homepage_services | to_nice_yaml(indent=2) | indent(2, first=true) }}
 # Keys match the *_ref fields in homepage_services widgets — the chart's
 # ConfigMap turns e.g. key_ref: SONARR_API_KEY into a HOMEPAGE_VAR_ template
 # placeholder, which Homepage resolves from this Secret's env at runtime
