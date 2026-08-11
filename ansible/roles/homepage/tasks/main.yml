@@ -1,0 +1,43 @@
+---
+- name: Check the share is available
+  ansible.builtin.stat:
+    path: "{{ configs_root }}/homepage"
+  register: hp_share
+
+- name: Abort when the share is not mounted
+  ansible.builtin.assert:
+    that: hp_share.stat.exists
+    fail_msg: >-
+      {{ configs_root }}/homepage missing — run storage.yml first
+      (samba + host CIFS mount), then restart this container.
+
+- name: Stack directory
+  ansible.builtin.file:
+    path: "{{ homepage_stack_dir }}"
+    state: directory
+    mode: "0755"
+
+- name: Copy the Helm chart to the container
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../kubernetes/charts/homepage/"
+    dest: "{{ homepage_stack_dir }}/chart/"
+
+- name: Render values (contains credentials)
+  ansible.builtin.template:
+    src: values-homelab.yaml.j2
+    dest: "{{ homepage_stack_dir }}/values.yaml"
+    mode: "0600"
+  no_log: true
+
+# helm upgrade --install is idempotent; k8s reconciles the rest. Change
+# reporting is delegated to helm's own release history.
+- name: Deploy the homepage release
+  ansible.builtin.command:
+    cmd: >-
+      helm upgrade --install homepage {{ homepage_stack_dir }}/chart
+      -f {{ homepage_stack_dir }}/values.yaml
+      --namespace homepage --create-namespace
+      --wait --timeout 5m
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  changed_when: false

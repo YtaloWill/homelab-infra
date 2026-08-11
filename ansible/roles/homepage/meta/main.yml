@@ -1,0 +1,11 @@
+---
+galaxy_info:
+  author: homelab-operator
+  description: >
+    Deploys the Homepage service dashboard via k3s + a repo-local Helm chart
+    on PCT 106 (192.168.15.106). Requires the samba share to be mounted and
+    configs_root/homepage to exist (run storage.yml first).
+  license: MIT
+  min_ansible_version: "2.14"
+
+dependencies: []

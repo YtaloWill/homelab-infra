@@ -123,3 +123,92 @@ proxy_services:
   - name: proxmox
     url: https://192.168.15.101:8006
     insecure_backend: true
+  - name: homepage
+    url: http://192.168.15.106:3000
+
+# --- homepage (k3s + helm) ---------------------------------------------------
+# Same chart-copy convention as arr_stack_dir/jellyfin_stack_dir. App
+# wiring: kubernetes/charts/homepage/values.yaml.
+homepage_stack_dir: /opt/homepage
+
+# homepage_services drives the rendered services.yaml inside the Homepage
+# Helm chart. widget.key_ref/username_ref/password_ref name a Secret key
+# (HOMEPAGE_VAR_<ref>) — the chart's ConfigMap turns each into a
+# {{HOMEPAGE_VAR_<ref>}} placeholder that Homepage resolves from its own
+# container env at runtime, so no plaintext secret ever lands in the
+# ConfigMap (Requirement 12.5). Services without widgets (Flaresolverr,
+# Proxmox, Traefik) have no widget block.
+homepage_services:
+  - name: Jellyfin
+    url: https://jellyfin.local
+    icon: jellyfin
+    description: Media server
+    widget:
+      type: jellyfin
+      url: http://192.168.15.102:8096
+      key_ref: JELLYFIN_API_KEY
+  - name: Prowlarr
+    url: https://prowlarr.local
+    icon: prowlarr
+    description: Indexer manager
+    widget:
+      type: prowlarr
+      url: http://192.168.15.103:9696
+      key_ref: PROWLARR_API_KEY
+  - name: qBittorrent
+    url: https://qbittorrent.local
+    icon: qbittorrent
+    description: Torrent client
+    widget:
+      type: qbittorrent
+      url: http://192.168.15.103:8080
+      username_ref: QBITTORRENT_USERNAME
+      password_ref: QBITTORRENT_PASSWORD
+  - name: Radarr
+    url: https://radarr.local
+    icon: radarr
+    description: Movie manager
+    widget:
+      type: radarr
+      url: http://192.168.15.103:7878
+      key_ref: RADARR_API_KEY
+  - name: Sonarr
+    url: https://sonarr.local
+    icon: sonarr
+    description: TV show manager
+    widget:
+      type: sonarr
+      url: http://192.168.15.103:8989
+      key_ref: SONARR_API_KEY
+  - name: Bazarr
+    url: https://bazarr.local
+    icon: bazarr
+    description: Subtitle manager
+    widget:
+      type: bazarr
+      url: http://192.168.15.103:6767
+      key_ref: BAZARR_API_KEY
+  - name: Jellyseerr
+    url: https://jellyseerr.local
+    icon: jellyseerr
+    description: Media request manager
+    widget:
+      type: jellyseerr
+      url: http://192.168.15.103:5055
+      key_ref: JELLYSEERR_API_KEY
+  - name: Flaresolverr
+    url: https://flaresolverr.local
+    icon: flaresolverr
+    description: Captcha bypass proxy
+  - name: BookOrbit
+    url: https://bookorbit.local
+    icon: bookstack
+    description: Ebook and audiobook library
+  - name: Proxmox
+    url: https://proxmox.local
+    icon: proxmox
+    description: Hypervisor dashboard
+  - name: Traefik
+    url: https://traefik.local
+    icon: traefik
+    description: Reverse proxy dashboard

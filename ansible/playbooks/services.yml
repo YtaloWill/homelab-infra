@@ -23,6 +23,12 @@
     - k3s
     - bookorbit
 
+- name: Homepage service dashboard (k3s + helm)
+  hosts: homepage
+  roles:
+    - k3s
+    - homepage
+
 - name: Local DNS + reverse proxy
   hosts: traefik
   roles:

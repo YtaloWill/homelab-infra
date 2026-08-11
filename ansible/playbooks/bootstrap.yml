@@ -9,7 +9,7 @@
   vars:
     ssh_public_key_file: "{{ lookup('env', 'HOME') }}/.ssh/id_ed25519.pub"
     ssh_public_key: "{{ lookup('file', ssh_public_key_file) }}"
-    bootstrap_containers: [100, 101, 102, 104, 150, 151]
+    bootstrap_containers: [100, 101, 102, 104, 106, 150, 151]
   tasks:
     - name: Install python3 + sshd
       ansible.builtin.command: >-

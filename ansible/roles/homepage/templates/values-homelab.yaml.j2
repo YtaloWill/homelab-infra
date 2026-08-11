@@ -1,0 +1,25 @@
+# Rendered by Ansible (roles/homepage) — do not edit; see
+# kubernetes/charts/homepage/values.yaml for app wiring.
+timezone: {{ tz }}
+puid: "{{ puid }}"
+pgid: "{{ pgid }}"
+configRoot: {{ configs_root }}/homepage
+allowedHosts: homepage.{{ local_domain }}
+
+services:
+{{ homepage_services | to_nice_yaml(indent=2) | indent(2) }}
+# Keys match the *_ref fields in homepage_services widgets — the chart's
+# ConfigMap turns e.g. key_ref: SONARR_API_KEY into a HOMEPAGE_VAR_ template
+# placeholder, which Homepage resolves from this Secret's env at runtime
+# (Requirement 12.5).
+apiKeys:
+  HOMEPAGE_VAR_SONARR_API_KEY: "{{ vault_api_keys.sonarr_api_key }}"
+  HOMEPAGE_VAR_RADARR_API_KEY: "{{ vault_api_keys.radarr_api_key }}"
+  HOMEPAGE_VAR_PROWLARR_API_KEY: "{{ vault_api_keys.prowlarr_api_key }}"
+  HOMEPAGE_VAR_JELLYFIN_API_KEY: "{{ vault_api_keys.jellyfin_api_key }}"
+  HOMEPAGE_VAR_JELLYSEERR_API_KEY: "{{ vault_api_keys.jellyseerr_api_key | default('') }}"
+  HOMEPAGE_VAR_BAZARR_API_KEY: "{{ vault_api_keys.bazarr_api_key | default('') }}"
+
+qbittorrentCredentials:
+  username: "{{ vault_qbittorrent_credentials.username }}"
+  password: "{{ vault_qbittorrent_credentials.password }}"

@@ -1,0 +1,4 @@
+---
+# Stack directory on the target container where the Helm chart is copied
+# and the rendered values file is written. Override in group_vars if needed.
+homepage_stack_dir: /opt/homepage

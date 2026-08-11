@@ -44,7 +44,7 @@
     # share content only after a restart.
     - name: Restart consumer containers on first mount
       ansible.builtin.command: "pct reboot {{ item }}"
-      loop: [100, 101, 102]
+      loop: [100, 101, 102, 106]
       when: cifs_mount is changed
       register: ct_reboot
       failed_when:

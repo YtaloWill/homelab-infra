@@ -34,3 +34,18 @@ vault_bookorbit_environment:
   JWT_SECRET: CHANGE_ME
   SETUP_BOOTSTRAP_TOKEN: CHANGE_ME
   POSTGRES_PASSWORD: CHANGE_ME
+
+# Homepage dashboard widget credentials (Requirement 12.5). Get each API key
+# from that app's own UI: Settings -> General -> Security -> API Key.
+vault_api_keys:
+  sonarr_api_key: CHANGE_ME
+  radarr_api_key: CHANGE_ME
+  prowlarr_api_key: CHANGE_ME
+  jellyfin_api_key: CHANGE_ME
+  jellyseerr_api_key: CHANGE_ME
+  bazarr_api_key: CHANGE_ME
+
+# qBittorrent WebUI login (Settings -> WebUI), for the Homepage widget.
+vault_qbittorrent_credentials:
+  username: CHANGE_ME
+  password: CHANGE_ME

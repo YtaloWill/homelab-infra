@@ -49,7 +49,7 @@
     owner: "{{ samba_user }}"
     group: "{{ samba_user }}"
     mode: "0770"
-  loop: "{{ ['jellyfin', 'jellyfin/config', 'jellyfin/data', 'bookorbit', 'arr']
+  loop: "{{ ['jellyfin', 'jellyfin/config', 'jellyfin/data', 'bookorbit', 'homepage', 'arr']
             + (arr_services | map('regex_replace', '^', 'arr/') | list) }}"
 
 - name: Enable and start samba
