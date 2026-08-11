@@ -11,24 +11,28 @@
       {{ configs_root }}/homepage missing — run storage.yml first
       (samba + host CIFS mount), then restart this container.
 
-- name: Check whether settings.yaml already exists
-  ansible.builtin.stat:
-    path: "{{ configs_root }}/homepage/settings.yaml"
-  register: hp_settings
-
-# Homepage's own first-run behaviour is to copy a skeleton settings.yaml
-# into place if missing — that copy tries to set file metadata CIFS won't
-# allow (same class of failure as the chown warning below), and it isn't
-# tolerated: EPERM there crashes the container. Seeding it ourselves (as
-# root, which the CIFS mount's uid mapping already permits) means Homepage
-# finds it already present and never attempts that copy. Only writes when
-# absent, so it won't clobber settings changed later via Homepage's own UI.
-- name: Seed settings.yaml
+# Homepage's own first-run behaviour is to copy skeleton config files into
+# place whenever they're missing — settings.yaml, then kubernetes.yaml, and
+# (going by its own source layout) likely bookmarks.yaml/widgets.yaml/
+# docker.yaml too. That copy tries to set file metadata CIFS won't allow
+# (same class of failure as the chown warning below), and it isn't
+# tolerated: EPERM there crashes the container, one file at a time as each
+# is reached. Seeding them ourselves (as root, which the CIFS mount's uid
+# mapping already permits) means Homepage finds them already present and
+# never attempts its own copy. force: false — only writes when absent, so
+# it won't clobber anything changed later via Homepage's own UI.
+- name: Seed default config files Homepage would otherwise try to copy itself
   ansible.builtin.template:
-    src: settings.yaml.j2
-    dest: "{{ configs_root }}/homepage/settings.yaml"
+    src: "{{ item }}.j2"
+    dest: "{{ configs_root }}/homepage/{{ item }}"
     mode: "0660"
-  when: not hp_settings.stat.exists
+    force: false
+  loop:
+    - settings.yaml
+    - bookmarks.yaml
+    - widgets.yaml
+    - docker.yaml
+    - kubernetes.yaml
 
 - name: Stack directory
   ansible.builtin.file:
