@@ -18,6 +18,13 @@ spec:
         app.kubernetes.io/name: homepage
         {{- include "homepage.labels" . | nindent 8 }}
     spec:
+      # Unlike jellyfin/bookorbit, the gethomepage/homepage image doesn't
+      # read PUID/PGID itself to join the CIFS share's group — it just runs
+      # as its own default UID, which can't write to the group-10000-only
+      # (dir_mode=0770) hostPath. fsGroup adds that group at the pod level
+      # instead.
+      securityContext:
+        fsGroup: {{ .Values.env.PGID | int }}
       containers:
         - name: homepage
           image: {{ .Values.image.repository }}:{{ .Values.image.tag }}
