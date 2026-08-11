@@ -273,6 +273,34 @@ variable "databases_disk_gb" {
   default = 8
 }
 
+variable "homepage_ip" {
+  type    = string
+  default = "192.168.15.106/24"
+}
+
+variable "homepage_cores" {
+  type    = number
+  default = 1
+}
+
+# k3s server overhead (~700 MB) + Homepage's Node.js process; single-service
+# container, lighter than arr/jellyfin (design decision 15).
+variable "homepage_memory" {
+  type    = number
+  default = 1024
+}
+
+variable "homepage_swap" {
+  type    = number
+  default = 512
+}
+
+# k3s + containerd image layers for a single lightweight Node.js app.
+variable "homepage_disk_gb" {
+  type    = number
+  default = 8
+}
+
 locals {
   vmid_jellyfin  = 100
   vmid_arr       = 101
@@ -280,4 +308,5 @@ locals {
   vmid_proxy     = 104
   vmid_samba     = 150
   vmid_databases = 151
+  vmid_homepage  = 106
 }
