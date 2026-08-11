@@ -11,16 +11,19 @@
       {{ configs_root }}/homepage missing — run storage.yml first
       (samba + host CIFS mount), then restart this container.
 
-# Homepage's own first-run behaviour is to copy skeleton config files into
-# place whenever they're missing — settings.yaml, then kubernetes.yaml, and
-# (going by its own source layout) likely bookmarks.yaml/widgets.yaml/
-# docker.yaml too. That copy tries to set file metadata CIFS won't allow
-# (same class of failure as the chown warning below), and it isn't
-# tolerated: EPERM there crashes the container, one file at a time as each
-# is reached. Seeding them ourselves (as root, which the CIFS mount's uid
-# mapping already permits) means Homepage finds them already present and
-# never attempts its own copy. force: false — only writes when absent, so
-# it won't clobber anything changed later via Homepage's own UI.
+# Homepage's own first-run behaviour is to copy every file in its own
+# src/skeleton/ into /app/config whenever missing (verified against
+# gethomepage/homepage upstream: bookmarks.yaml, custom.css, custom.js,
+# docker.yaml, kubernetes.yaml, proxmox.yaml, services.yaml, settings.yaml,
+# widgets.yaml — services.yaml is excluded here, it's provided by the
+# chart's ConfigMap instead). That copy tries to set file metadata CIFS
+# won't allow (same class of failure as the chown warning below), and it
+# isn't tolerated: EPERM there crashes the container, one file at a time as
+# each is reached. Seeding all of them ourselves (as root, which the CIFS
+# mount's uid mapping already permits) means Homepage finds every one
+# already present and never attempts its own copy. force: false — only
+# writes when absent, so it won't clobber anything changed later via
+# Homepage's own UI.
 - name: Seed default config files Homepage would otherwise try to copy itself
   ansible.builtin.template:
     src: "{{ item }}.j2"
@@ -33,6 +36,9 @@
     - widgets.yaml
     - docker.yaml
     - kubernetes.yaml
+    - proxmox.yaml
+    - custom.css
+    - custom.js
 
 - name: Stack directory
   ansible.builtin.file:
