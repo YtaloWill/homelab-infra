@@ -11,6 +11,25 @@
       {{ configs_root }}/homepage missing — run storage.yml first
       (samba + host CIFS mount), then restart this container.
 
+- name: Check whether settings.yaml already exists
+  ansible.builtin.stat:
+    path: "{{ configs_root }}/homepage/settings.yaml"
+  register: hp_settings
+
+# Homepage's own first-run behaviour is to copy a skeleton settings.yaml
+# into place if missing — that copy tries to set file metadata CIFS won't
+# allow (same class of failure as the chown warning below), and it isn't
+# tolerated: EPERM there crashes the container. Seeding it ourselves (as
+# root, which the CIFS mount's uid mapping already permits) means Homepage
+# finds it already present and never attempts that copy. Only writes when
+# absent, so it won't clobber settings changed later via Homepage's own UI.
+- name: Seed settings.yaml
+  ansible.builtin.template:
+    src: settings.yaml.j2
+    dest: "{{ configs_root }}/homepage/settings.yaml"
+    mode: "0660"
+  when: not hp_settings.stat.exists
+
 - name: Stack directory
   ansible.builtin.file:
     path: "{{ homepage_stack_dir }}"
