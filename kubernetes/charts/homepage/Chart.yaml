@@ -1,0 +1,9 @@
+apiVersion: v2
+name: homepage
+description: >-
+  Homelab service dashboard. hostPath-backed config on the samba share.
+  API keys and qBittorrent credentials injected from a Kubernetes Secret
+  rendered by Ansible from Vault. Exposed on the node IP via k3s servicelb.
+type: application
+version: 0.1.0
+appVersion: "1"

@@ -1,0 +1,46 @@
+# Wiring lives here; templates are generic.
+# Ansible overrides timezone/paths/secrets via a rendered values file.
+
+image:
+  repository: ghcr.io/gethomepage/homepage
+  tag: latest
+  pullPolicy: IfNotPresent
+
+# Environment — matches fleet-wide convention (Requirement 12.8, 4.2).
+env:
+  TZ: America/Sao_Paulo
+  PUID: "1000"
+  PGID: "10000"
+
+port: 3000
+
+# Host header Homepage will accept requests for — it 403s anything else.
+allowedHosts: homepage.local
+
+# hostPath for /app/config inside PCT 106 (the /mnt/samba bind mount).
+config_path: /mnt/samba/configs/homepage
+
+service:
+  type: LoadBalancer
+  port: 3000
+
+# Service list rendered into services.yaml — populated by Ansible's rendered
+# values file from the homepage_services inventory variable (Requirement 12.4).
+services: []
+
+# API keys — populated from vault_api_keys by the Ansible role template.
+# Never commit real values here (Requirement 8.1). Keys are HOMEPAGE_VAR_-
+# prefixed to match the *_ref fields in homepage_services widgets, e.g.:
+#   HOMEPAGE_VAR_SONARR_API_KEY: ""
+#   HOMEPAGE_VAR_RADARR_API_KEY: ""
+#   HOMEPAGE_VAR_PROWLARR_API_KEY: ""
+#   HOMEPAGE_VAR_JELLYFIN_API_KEY: ""
+#   HOMEPAGE_VAR_JELLYSEERR_API_KEY: ""
+#   HOMEPAGE_VAR_BAZARR_API_KEY: ""
+apiKeys: {}
+
+# qBittorrent login credentials — separate from API keys (Requirement 12.5).
+# Populated from vault_qbittorrent_credentials by the Ansible role template.
+qbittorrentCredentials:
+  username: ""
+  password: ""

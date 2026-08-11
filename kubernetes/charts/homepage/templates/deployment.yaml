@@ -1,0 +1,67 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: homepage
+  labels:
+    app.kubernetes.io/name: homepage
+    {{- include "homepage.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: homepage
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: homepage
+        {{- include "homepage.labels" . | nindent 8 }}
+    spec:
+      containers:
+        - name: homepage
+          image: {{ .Values.image.repository }}:{{ .Values.image.tag }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          # Fleet-wide env vars (Requirement 12.8, 4.2).
+          env:
+            - name: TZ
+              value: {{ .Values.env.TZ | quote }}
+            - name: PUID
+              value: {{ .Values.env.PUID | quote }}
+            - name: PGID
+              value: {{ .Values.env.PGID | quote }}
+            # Without this, Homepage 403s every request whose Host header
+            # doesn't match — it doesn't default-allow the hostname it's
+            # actually reached at.
+            - name: HOMEPAGE_ALLOWED_HOSTS
+              value: {{ .Values.allowedHosts | quote }}
+          # API keys and qBittorrent credentials injected from Secret
+          # (Requirement 12.5).
+          envFrom:
+            - secretRef:
+                name: homepage-secret
+          ports:
+            - name: http
+              containerPort: {{ .Values.port }}
+          volumeMounts:
+            # Homepage reads its YAML config from /app/config.
+            # hostPath keeps config on the samba share so it survives
+            # container rebuilds (Requirement 12.3, 2.2).
+            - name: config-volume
+              mountPath: /app/config
+            # services.yaml is generated from .Values.services (rendered by
+            # the homepage role from homepage_services) rather than living
+            # on the share — it's fully reproducible from this repo + Vault,
+            # so there's nothing about it that needs to survive independent
+            # of a redeploy.
+            - name: services-config
+              mountPath: /app/config/services.yaml
+              subPath: services.yaml
+      volumes:
+        - name: config-volume
+          hostPath:
+            path: {{ .Values.config_path }}
+            type: DirectoryOrCreate
+        - name: services-config
+          configMap:
+            name: homepage-services

@@ -1,0 +1,32 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: homepage-services
+  labels:
+    app.kubernetes.io/name: homepage
+    {{- include "homepage.labels" . | nindent 4 }}
+data:
+  services.yaml: |
+    - Services:
+      {{- range .Values.services }}
+        - {{ .name }}:
+            href: {{ .url | quote }}
+            {{- if .icon }}
+            icon: {{ .icon | quote }}
+            {{- end }}
+            {{- if .description }}
+            description: {{ .description | quote }}
+            {{- end }}
+            {{- if .widget }}
+            widget:
+              type: {{ .widget.type | quote }}
+              url: {{ .widget.url | quote }}
+              {{- if .widget.key_ref }}
+              key: {{ printf "{{HOMEPAGE_VAR_%s}}" .widget.key_ref | quote }}
+              {{- end }}
+              {{- if .widget.username_ref }}
+              username: {{ printf "{{HOMEPAGE_VAR_%s}}" .widget.username_ref | quote }}
+              password: {{ printf "{{HOMEPAGE_VAR_%s}}" .widget.password_ref | quote }}
+              {{- end }}
+            {{- end }}
+      {{- end }}
